@@ -13,7 +13,7 @@ import numpy as np
 from threading import Lock
 
 from gps_to_ned import GPS_2_NED
-from pp import PurePursuit
+from pure_pursuit.pp import PurePursuit
 
 class SharedData():
     ################ Constant section ################
