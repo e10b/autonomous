@@ -112,7 +112,6 @@ class State():
     def on_enter(self):
         pass
     def on_exit(self):
-        print()
         pass
     def step(self):
         pass
@@ -230,7 +229,8 @@ def run_machine():
     state_instance.goal_state = GoalState()
 
     cur_state = state_instance.start_state
-    last_state = State()
+    cur_state.on_enter()
+    last_state = cur_state
     
     while not rospy.is_shutdown():
         rate.sleep()
