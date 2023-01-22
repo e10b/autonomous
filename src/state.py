@@ -5,7 +5,7 @@
 import sys
 import rospy
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Float64MultiArray, Float64
+from std_msgs.msg import Float64MultiArray, Float64, String
 from sensor_msgs.msg import NavSatFix
 import math
 from collections import deque
@@ -14,6 +14,7 @@ from threading import Lock
 
 from gps_to_ned import GPS_2_NED
 from pure_pursuit.pp import PurePursuit
+
 
 class SharedData():
     ################ Constant section ################
@@ -26,7 +27,7 @@ class SharedData():
     GPS_TOPIC_NAME       = "/mavros/global_position/global"
     VELOCITY_TOPIC_NAME  = "/mavros/global_position/gp_vel"
     COMPASS_TOPIC_NAME   = "/mavros/global_position/compass_hdg"
-    WAYPOINTS_TOPIC_NAME = "/rover_waypoints"
+    WAYPOINTS_TOPIC_NAME = "/rover_waypoint"
     ARTAG_TOPIC_NAME     = "/artag_position"
     CUR_STATE_TOPIC_NAME = "/set_state"
 
@@ -86,8 +87,10 @@ def on_new_velocity_msg(msg):
 
 
 def on_receive_new_gps_waypoint(gps_waypoint_list):
+  #  print(gps_waypoint_list)
     """ waypoint_list is 2d multi-array nx2. i.e. [[lat, lon]...]"""
     shared_data.mutex.acquire()
+   # print(shared_data.gps_converter, shared_data.cur_position, shared_data.cur_heading)
 
     if shared_data.gps_converter is None or\
        shared_data.cur_position  is None or\
@@ -97,17 +100,18 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
   
     shared_data.go_home_position = shared_data.cur_position  # remember where to go back to
     
-    new_waypoints = [shared_data.cur_position]  # put the current position into the waypoints too
-    for coord in gps_waypoint_list:
-        new_waypoints.append(shared_data.gps_converter.gps_to_xy(coord[0], coord[1]))
-    # print(new_waypoints)
+    shared_data.new_waypoints = [shared_data.cur_position]  # put the current position into the waypoints too
+    for i in range(0, len(gps_waypoint_list.data)):
+        if i % 5 == 0:
+            shared_data.new_waypoints.append(shared_data.gps_converter.gps_to_xy(gps_waypoint_list.data[i], gps_waypoint_list.data[i+1]))
+    print(shared_data.new_waypoints)
 
     shared_data.new_waypoints_flag = True
 
     shared_data.mutex.release()
 
 class State():
-    def __init__():
+    def __init__(self):
         pass
     def on_enter(self):
         pass
@@ -144,6 +148,7 @@ class NewControllerState(State):
         print("Entering newControllerState...")
         shared_data.mutex.acquire()
         # diff btw the last two waypoints
+        
         diff = np.array(shared_data.new_waypoints[-1]) - np.array(shared_data.new_waypoints[-2])
         next_orientation = math.atan2(diff[1], diff[0])  # calc the angle of the line connecting the last two waypoints
         shared_data.controller = PurePursuit(shared_data.new_waypoints, shared_data.cur_heading, next_orientation)
@@ -159,8 +164,9 @@ class DriveState(State):
 
     def step(self):
         shared_data.mutex.acquire()
-        shared_data.controller.calc_steering(shared_data.cur_position)
-        steering_radius = shared_data.controller.calc_steering(shared_data.cur_position, shared_data.cur_heading)
+        arr = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
+        shared_data.controller.calc_steering(arr)
+        steering_radius = shared_data.controller.calc_steering(arr)
         steering_output = shared_data.STEERING_CONST * shared_data.cur_speed / steering_radius
         vel_msg = Float64MultiArray()
         vel_msg.data = [shared_data.AUTON_SPEED-steering_output, shared_data.AUTON_SPEED+steering_output]
@@ -216,11 +222,11 @@ class ValidatingState(State):
 class GoalState(State):
     def on_enter(self):
         print("Entering goalState...")
-    def step(self) -> State():
+    def step(self) -> State:
         return state_instance.goal_state    
 
 def run_machine():
-    rate = rospy.rate(shared_data.RATE)
+    rate = rospy.Rate(shared_data.RATE)
 
     state_instance.start_state = StartState()
     state_instance.new_controller_state = NewControllerState()
