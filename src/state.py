@@ -39,6 +39,7 @@ class SharedData():
     VELOCITY_TOPIC_NAME  = "/mavros/global_position/raw/gps_vel"
     COMPASS_TOPIC_NAME   = "/mavros/global_position/compass_hdg"
     WAYPOINTS_TOPIC_NAME = "/rover_waypoint"
+    OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME = "/obstacle_avoidance/path"
     ARTAG_TOPIC_NAME     = "/artag_position"
     CUR_STATE_TOPIC_NAME = "/set_state"
 
@@ -61,6 +62,10 @@ class SharedData():
     new_waypoints_flag = False  # used as a synchronization flag
     new_waypoints      = []     # all waypoints we need to hit to get to the target
 
+    new_obstacle_avoidance_waypoints_flag = False  # used as a synchronization flag
+    obstacle_avoidance_new_waypoints      = []     # all waypoints we need to hit to get to the target
+    obstacle_avoidance_is_finished      = True     # obstacle avoidance has run and can avoid another obstacle
+
     should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints  
     found_ar_flag      = False  # if ar tag has been detected, can go to ar tag state
     do_gate_task       = False  # if two tags detected, then do gate task
@@ -80,6 +85,7 @@ class SharedData():
     target_id2         = 1.0      # id value of desired ar tag 2 for gate task
 
     controller = None  # pure pursuit controller
+    obstacle_avoidance_controller = None  # pure pursuit controller for obstacle avoidance
     start_time = None  # time stamp of when a state was first entered
 
 shared_data = SharedData()  # the global state object
@@ -160,6 +166,20 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
 
     shared_data.mutex.release()
 
+def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints):
+    """ waypoint_list is an array of repeating values. i.e. [lat, lon, should_look_for_ar, id, speed, lat, lon...]"""
+    shared_data.mutex.acquire()
+
+    # if not finished don't read any points in
+    if (shared_data.obstacle_avoidance_is_finished):
+        # unflatten waypoints
+        shared_data.obstacle_avoidance_new_waypoints = []
+
+        shared_data.new_obstacle_avoidance_waypoints_flag = True
+        shared_data.obstacle_avoidance_is_finished = False
+
+    shared_data.mutex.release()
+
 
 def found_ar_tag(msg):
     # Use shared_data (create new variables?)
@@ -225,6 +245,7 @@ class State():
 class StateInstance():
     start_state             = None
     new_controller_state    = None
+    new_obstacle_avoidance_controller_state    = None
     drive_state             = None
     validating_state        = None
     goal_state              = None
@@ -263,6 +284,9 @@ class NewControllerState(State):
         diff = np.array(shared_data.new_waypoints[-1]) - np.array(shared_data.new_waypoints[-2])
         next_orientation = math.atan2(diff[1], diff[0])  # calc the angle of the line connecting the last two waypoints
         shared_data.controller = PurePursuit(shared_data.new_waypoints, 
+                                             shared_data.cur_heading, 
+                                             next_orientation)
+        shared_data.obstacle_avoidance_controller = PurePursuit(shared_data.new_waypoints, 
                                              shared_data.cur_heading, 
                                              next_orientation)
         shared_data.new_waypoints_flag = False  # invalidate the flag so don't enter again
@@ -310,6 +334,61 @@ class DriveState(State):
         shared_data.mutex.release()
         return state_instance.drive_state
 
+
+# runs when avoiding an obstacle
+# need to have a different controller to keep track of waypoints etc
+class ObstacleAvoidanceDriveState(State):
+    def on_enter(self):
+        print("Entering driveState...")
+        shared_data.start_time = time()
+
+    def step(self):
+        shared_data.mutex.acquire()
+        cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
+        steering_radius = shared_data.obstacle_avoidance_controller.calc_steering(cur_pose)
+        steering_output = shared_data.STEERING_CONST * shared_data.cur_speed / steering_radius
+        vel_msg = Float64MultiArray()
+        # TODO: figure out how to turn in place?
+        vel_msg.data = [shared_data.AUTON_SPEED - steering_output, 
+                        shared_data.AUTON_SPEED + steering_output]
+        for i in range(len(vel_msg.data)):
+            vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+        shared_data.auton_publisher.publish(vel_msg)
+        # print(
+        #      "CURR POSE", list(map(lambda x: round(x, 3), shared_data.cur_position, shared_data.cur_heading)),
+        #      "CURR STEERING", round(steering_radius, 3),
+        #      "HIST POSE", list(map(lambda x: round(x, 9), np.array(shared_data.gps_history).mean(axis=0)))
+        # )
+
+        # Failed to turn in time
+        if shared_data.obstacle_avoidance_controller.is_outside_lookahead():
+            shared_data.new_waypoints = shared_data.new_waypoints[-1:]
+            shared_data.new_waypoints.insert(0, shared_data.cur_position)
+            shared_data.mutex.release()
+            return state_instance.new_obstacle_avoidance_controller_state
+        if shared_data.obstacle_avoidance_controller.did_reach_goal():
+            shared_data.mutex.release()
+            shared_data.obstacle_avoidance_is_finished = True
+            return state_instance.validating_state
+        shared_data.mutex.release()
+        return state_instance.drive_state
+
+class NewObstacleAvoidanceControllerState(State):
+    def on_enter(self):
+        print("Entering NewObstacleAvoidanceControllerState...")
+        shared_data.mutex.acquire()
+        # diff btw the last two waypoints
+        
+        shared_data.controller = PurePursuit(shared_data.new_waypoints, 
+                                             shared_data.cur_heading, 
+                                             next_orientation)
+        shared_data.obstacle_avoidance_controller = PurePursuit(shared_data.new_waypoints, 
+                                             shared_data.cur_heading, 
+                                             next_orientation)
+        shared_data.new_waypoints_flag = False  # invalidate the flag so don't enter again
+        shared_data.mutex.release()
+    def step(self):
+        return state_instance.drive_state
 
 class ValidatingState(State):
     def on_enter(self):
@@ -630,7 +709,9 @@ def run_machine():
 
     state_instance.start_state           = StartState()
     state_instance.new_controller_state  = NewControllerState()
+    state_instance.new_obstacle_avoidance_controller_state  = NewObstacleAvoidanceControllerState()
     state_instance.drive_state           = DriveState()
+    state_instance.obstacle_avoidance_drive_state           = ObstacleAvoidanceDriveState()
     state_instance.validating_state      = ValidatingState()
     state_instance.goal_state            = GoalState()
     state_instance.retry_state           = RetryState()
@@ -649,6 +730,8 @@ def run_machine():
     while not rospy.is_shutdown():
         rate.sleep()
         # if receive new position from ROS, go to new controller state
+        if shared_data.new_obstacle_avoidance_waypoints_flag:
+            cur_state = state_instance.new_obstacle_avoidance_controller_state
         if shared_data.new_waypoints_flag:
             cur_state = state_instance.new_controller_state
         if last_state != cur_state:
