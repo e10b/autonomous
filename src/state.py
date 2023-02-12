@@ -159,13 +159,14 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
 
     shared_data.mutex.release()
 
+
 def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints):
     """ waypoint_list is an array of repeating values. i.e. [lat, lon, should_look_for_ar, id, speed, lat, lon...]"""
     shared_data.mutex.acquire()
 
     # if not finished don't read any points in
     if (shared_data.obstacle_avoidance_is_finished):
-        # unflatten waypoints
+        # TODO: unflatten waypoints
         shared_data.obstacle_avoidance_new_waypoints = []
 
         shared_data.new_obstacle_avoidance_waypoints_flag = True
@@ -332,7 +333,7 @@ class DriveState(State):
 # need to have a different controller to keep track of waypoints etc
 class ObstacleAvoidanceDriveState(State):
     def on_enter(self):
-        print("Entering driveState...")
+        print("Entering obstacle avoidance driveState...")
         shared_data.start_time = time()
 
     def step(self):
@@ -364,7 +365,7 @@ class ObstacleAvoidanceDriveState(State):
             shared_data.obstacle_avoidance_is_finished = True
             return state_instance.validating_state
         shared_data.mutex.release()
-        return state_instance.drive_state
+        return state_instance.obstacle_avoidance_drive_state
 
 class NewObstacleAvoidanceControllerState(State):
     def on_enter(self):
@@ -372,16 +373,16 @@ class NewObstacleAvoidanceControllerState(State):
         shared_data.mutex.acquire()
         # diff btw the last two waypoints
         
-        shared_data.controller = PurePursuit(shared_data.new_waypoints, 
-                                             shared_data.cur_heading, 
+        shared_data.controller = PurePursuit(shared_data.new_waypoints,
+                                             shared_data.cur_heading,
                                              next_orientation)
-        shared_data.obstacle_avoidance_controller = PurePursuit(shared_data.new_waypoints, 
-                                             shared_data.cur_heading, 
+        shared_data.obstacle_avoidance_controller = PurePursuit(shared_data.new_waypoints,
+                                             shared_data.cur_heading,
                                              next_orientation)
         shared_data.new_waypoints_flag = False  # invalidate the flag so don't enter again
         shared_data.mutex.release()
     def step(self):
-        return state_instance.drive_state
+        return state_instance.obstacle_avoidance_drive_state
 
 class ValidatingState(State):
     def on_enter(self):
@@ -749,7 +750,9 @@ def run_machine():
         # if receive new position from ROS, go to new controller state
         if shared_data.new_obstacle_avoidance_waypoints_flag:
             cur_state = state_instance.new_obstacle_avoidance_controller_state
-        if shared_data.new_waypoints_flag:
+
+        # help
+        if shared_data.new_waypoints_flag and (type(last_state).__name__ is not NewObstacleAvoidanceControllerState.__name__ ) and (type(last_state).__name__ is not ObstacleAvoidanceDriveState.__name__):
             cur_state = state_instance.new_controller_state
         if type(last_state).__name__ != type(cur_state).__name__:
             last_state.on_exit()
