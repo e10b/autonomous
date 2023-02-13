@@ -15,7 +15,7 @@ from time import time
 
 from gps_to_ned import GPS_2_NED
 from pure_pursuit.pp import PurePursuit
-from spiral_generation import get_spiral
+from pure_pursuit.spiral_generation import get_spiral
 
 
 class SharedData():
@@ -29,10 +29,10 @@ class SharedData():
     STEERING_CONST = 50
     DRIVE_TIMEOUT = 20
     SPIN_TIMEOUT = 10
-    AR_TIMEOUT = 5
+    AR_TIMEOUT = 10
     AR_TOLERANCE = 0.062 # size of ar tag we want to see before we stop
-    AR_TAGS_SIZE_RATIO = 2 # for checking if distance between two ar tags are too close
-    CIRCLE_TIMEOUT = 7.5
+    AR_TAGS_DIST_TOLERANCE = 0.1 # for checking if distance between two ar tags are too close
+    BACKUP_TIMEOUT = 2
     AUTON_TOPIC_NAME     = "/autonomous_drive_train"
     GPS_TOPIC_NAME       = "/mavros/global_position/global"
     VELOCITY_TOPIC_NAME  = "/mavros/global_position/gp_vel"
@@ -62,6 +62,7 @@ class SharedData():
     should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints  
     found_ar_flag      = False  # if ar tag has been detected, can go to ar tag state
     do_gate_task       = False  # if two tags detected, then do gate task
+    do_circle_task     = False  # if one tag detected, then do circle task
 
     ar_cX              = 0      # central x position of detected ar tag
     ar_cY              = 0      # central y position of detected ar tag
@@ -73,7 +74,8 @@ class SharedData():
     ar_size2           = 0      # size of ar tag 2 calculated by area
     ar_id2             = 0      # id value of detected ar tag 2
 
-    target_id          = 1      # id value of desired ar tag
+    target_id          = 0      # id value of desired ar tag
+    target_id2         = 0      # id value of desired ar tag 2 for gate task
 
     controller = None  # pure pursuit controller
     start_time = None  # time stamp of when a state was first entered
@@ -126,7 +128,10 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
        return
   
     shared_data.go_home_position = shared_data.cur_position  # remember where to go back to
-    shared_data.should_look_for_ar = gps_waypoint_list[-3]
+    shared_data.should_look_for_ar = gps_waypoint_list.data[-3]
+ #   shared_data.do_gate_task = gps_waypoint_list[-2] != 0
+    shared_data.target_id = gps_waypoint_list.data[-2]
+ #   shared_data.target_id2 = gps_waypoint_list[-2]
 
     shared_data.new_waypoints = [shared_data.cur_position]  # put the current position into the waypoints too
     for i in range(0, len(gps_waypoint_list.data)):
@@ -142,14 +147,21 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
 def found_ar_tag(msg):
     # Use shared_data (create new variables?)
     shared_data.mutex.acquire()
-    
-    if len(msg.data) > 1:
-        shared_data.do_gate_task = True
-        [shared_data.ar_cX2, shared_data.ar_cY2,
-         shared_data.ar_size2, shared_data.ar_id2] = msg.data[1]
 
-    [shared_data.ar_cX, shared_data.ar_cY,
-     shared_data.ar_size, shared_data.ar_id] = msg.data[0]
+    if shared_data.target_id == msg.data[3]:
+        [shared_data.ar_cX, shared_data.ar_cY,
+         shared_data.ar_size, shared_data.ar_id] = msg.data
+    """elif shared_data.target_id == msg.data[1][4]:
+        [shared_data.ar_cX, shared_data.ar_cY,
+         shared_data.ar_size, shared_data.ar_id] = msg.data[1]
+
+    if shared_data.target_id2 == msg.data[0][3]:
+        [shared_data.ar_cX2, shared_data.ar_cY2,
+         shared_data.ar_size2, shared_data.ar_id2] = msg.data[0]
+    elif shared_data.target_id2 == msg.data[1][4]:
+        [shared_data.ar_cX2, shared_data.ar_cY2,
+         shared_data.ar_size2, shared_data.ar_id2] = msg.data[1]"""
+         
     if shared_data.ar_id != shared_data.target_id:
         shared_data.mutex.release()
         return
@@ -186,7 +198,6 @@ class StateInstance():
     go_to_ar_state          = None
     align_state             = None
     charge_forward_state    = None
-    left_align_state        = None
     circle_state            = None
 
 state_instance = StateInstance()
@@ -238,13 +249,17 @@ class DriveState(State):
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
-        # print(
-        #      "CURR POSE", list(map(lambda x: round(x, 3), shared_data.cur_position, shared_data.cur_heading)),
-        #      "CURR STEERING", round(steering_radius, 3),
-        #      "HIST POSE", list(map(lambda x: round(x, 9), np.array(shared_data.gps_history).mean(axis=0)))
-        # )
+        print(
+             "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
+             "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
+             "LEFT WHEEL", round(vel_msg.data[0], 3),
+             "RIGHT WHEEL", round(vel_msg.data[1], 3),
+        )
 
         # Failed to turn in time
+        if shared_data.found_ar_flag:
+            shared_data.mutex.release()
+            return state_instance.go_to_ar_state
         if shared_data.controller.is_outside_lookahead():
             shared_data.new_waypoints = shared_data.new_waypoints[-1:]
             shared_data.new_waypoints.insert(0, shared_data.cur_position)
@@ -296,7 +311,6 @@ class GoalState(State):
     def on_enter(self):
         print("Entering goalState...")
     def step(self) -> State:
-        blomk()
         return state_instance.goal_state    
 
 
@@ -327,6 +341,10 @@ class SpinState(State):
         vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
         shared_data.auton_publisher.publish(vel_msg)
 
+        if shared_data.found_ar_flag:
+            shared_data.mutex.release()
+            return state_instance.go_to_ar_state
+
         if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT:  # done with spinning
             shared_data.mutex.release()
             return state_instance.forward_spiral_state
@@ -338,6 +356,9 @@ class SpinState(State):
 class ForwardSpiralState(State):
     def on_enter(self):
         print("Entering ForwardSpiralState...")
+
+        shared_data.mutex.acquire()
+        shared_data.start_time = time()
         pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
                              radius=10, coils=4, step=2)
         pts = pts[3:]
@@ -346,6 +367,8 @@ class ForwardSpiralState(State):
         shared_data.controller = PurePursuit(pts=pts, 
                                              start_ang=shared_data.cur_heading, 
                                              end_ang=end_ang)
+        shared_data.mutex.release()
+
     def step(self) -> State:
             
         shared_data.mutex.acquire()
@@ -359,11 +382,12 @@ class ForwardSpiralState(State):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
 
-        # print(
-        #     "POSE", list(map(lambda x: round(x, 1), cur_pose)),
-        #     "STEERING", round(steering_radius, 3),
-        #     "GPS AVG", list(map(lambda x: round(x, 6), np.array(gps_history).mean(axis=0))),
-        # )
+        print(
+             "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
+             "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
+             "LEFT WHEEL", round(vel_msg.data[0], 3),
+             "RIGHT WHEEL", round(vel_msg.data[1], 3),
+        )
 
         if shared_data.found_ar_flag:
             shared_data.mutex.release()
@@ -374,6 +398,10 @@ class ForwardSpiralState(State):
 
             return state_instance.backward_spiral_state
 
+        if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT:  # done with spinning
+            shared_data.mutex.release()
+            return state_instance.backward_spiral_state
+
         shared_data.mutex.release()
         return state_instance.forward_spiral_state
 
@@ -381,40 +409,25 @@ class ForwardSpiralState(State):
 class BackwardSpiralState(State):
     def on_enter(self):
         print("Entering BackwardSpiralState...")
-        pts = get_spiral(shared_data.cur_position[0], 
-                             shared_data.cur_position[1], 
-                             radius=10, coils=-4, step=2)
-        pts = pts[3:]
-        end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
-                            (pts[-1][0] - pts[-2][0]))
-        shared_data.controller = PurePursuit(pts=pts, 
-                                             start_ang=shared_data.cur_heading, 
-                                             end_ang=end_ang)
+        shared_data.mutex.acquire()
+        shared_data.start_time = time()
+        shared_data.mutex.release()
         
     def step(self) -> State:
         shared_data.mutex.acquire()
-        cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
-        steering_radius = shared_data.controller.calc_steering(cur_pose)
-        steering_output = shared_data.STEERING_CONST * shared_data.cur_speed / steering_radius
+        offset = (time()-shared_data.start_time) * 10
         vel_msg = Float64MultiArray()
-        vel_msg.data = [shared_data.AUTON_SPEED - steering_output,
-                        shared_data.AUTON_SPEED + steering_output]
-        for i in range(len(vel_msg.data)):
-            vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+        vel_msg.data = [shared_data.MAX_AUTON_SPEED, offset]
         shared_data.auton_publisher.publish(vel_msg)
 
-        # print(
-        #     "POSE", list(map(lambda x: round(x, 1), cur_pose)),
-        #     "STEERING", round(steering_radius, 3),
-        #     "GPS AVG", list(map(lambda x: round(x, 6), np.array(gps_history).mean(axis=0))),
-        # )
+        print(f"LEFT WHEEL: {vel_msg.data[0]} \
+                RIGHT WHEEL: {vel_msg.data[1]}")
 
         if shared_data.found_ar_flag:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
-
-        if shared_data.controller.did_reach_goal():
-            shared_data.should_look_for_ar = False
+        
+        if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT:  # done with spinning
             shared_data.mutex.release()
             return state_instance.retry_state
 
@@ -443,13 +456,22 @@ class GoToARState(State):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
 
+        print(f"LEFT WHEEL: {vel_msg.data[0]} \
+                RIGHT WHEEL: {vel_msg.data[1]}")
+
         # if the AR tag is big enough in frame, must be close enough
+
         if abs(shared_data.ar_size) > shared_data.AR_TOLERANCE:
             vel_msg.data = [0, 0]
             shared_data.auton_publisher.publish(vel_msg)
-            if shared_data.do_gate_task:
+            shared_data.found_ar_flag = False
+            if shared_data.do_circle_task:
                 shared_data.mutex.release()
                 return state_instance.circle_state
+
+            if shared_data.do_gate_task:
+                shared_data.mutex.release()
+                return state_instance.align_state
 
             shared_data.mutex.release()
             return state_instance.goal_state
@@ -474,46 +496,49 @@ class AlignState(State):
 
         vel_msg = Float64MultiArray()
 
-        # Spin to try to detect both ar tags
+        # Back up for 2 seconds to get a better view of the gate
+        if time() - shared_data.start_time < shared_data.BACKUP_TIMEOUT:
+            vel_msg.data = [-shared_data.AUTON_SPEED, -shared_data.AUTON_SPEED]
+            shared_data.auton_publisher.publish(vel_msg)
+            shared_data.mutex.release()
+            return state_instance.align_state
+
+        # Spin util both tags are in frame
         if shared_data.ar_size <= 0 or\
            shared_data.ar_size2 <= 0:
-            if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT:
+            if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT + shared_data.BACKUP_TIMEOUT:
                 vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
                 shared_data.auton_publisher.publish(vel_msg)
                 shared_data.mutex.release()
                 return state_instance.align_state
             else:
-                return state_instance.left_align_state
+                return state_instance.circle_state
 
-        # Try your best to go to center of both
-        if shared_data.ar_cX + shared_data.ar_cX/2 >= 550 or\
-           shared_data.ar_cX + shared_data.ar_cX/2 <= 450:
-            if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT:
+        # Spin until both tags are centered
+        if (shared_data.ar_cX + shared_data.ar_cX2)/2 >= 0.6 or\
+           (shared_data.ar_cX + shared_data.ar_cX2)/2 <= 0.4:
+            if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT + shared_data.BACKUP_TIMEOUT:
                 vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
                 shared_data.auton_publisher.publish(vel_msg)
                 shared_data.mutex.release()
                 return state_instance.align_state
 
-        # If the distance between 2 tags is too small compared to size, just circle around left gate
-        help = max(shared_data.ar_size, shared_data.ar_size2) / min(shared_data.ar_size, shared_data.ar_size2)
-        if help > shared_data.AR_TAGS_SIZE_RATIO:
-            return state_instance.left_align_state
+        # If the distance between 2 tags is too small or only see 1 tag, go back to that tag
+        distbtwntags = abs(shared_data.ar_cX - shared_data.ar_cX2)
+        if distbtwntags < shared_data.AR_TAGS_DIST_TOLERANCE or\
+           shared_data.ar_size <= 0.01 or\
+           shared_data.ar_size2 <= 0.01:
+            shared_data.do_circle_task = True
+            return state_instance.spin_state
         
-        if shared_data.ar_size > shared_data.AR_TOLERANCE and\
-           shared_data.ar_size2 > shared_data.AR_TOLERANCE:
-            return state_instance.charge_forward_state
-
-        return state_instance.align_state
-
+        return state_instance.charge_forward_state
 
 class ChargeForwardState(State):
     def on_enter(self):
         print("Entering ChargeForwardState...")
 
-
     def step(self) -> State:
         shared_data.mutex.acquire()
-        cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
         vel_msg = Float64MultiArray()
         off_center = (shared_data.ar_cX + shared_data.ar_cX2)/2 - 0.5
         vel_msg.data = [
@@ -523,22 +548,21 @@ class ChargeForwardState(State):
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
+        print(f"LEFT WHEEL: {vel_msg.data[0]} \
+                RIGHT WHEEL: {vel_msg.data[1]}")
 
-        if shared_data.ar_size <= 0 and\
-           shared_data.ar_size2 <= 0:
+        if shared_data.ar_size > 0.01 and\
+           shared_data.ar_size2 > 0.01:
+            shared_data.start_time = time()
+
+        if time() - shared_data.start_time > 2:
+            vel_msg.data = [0, 0]
+            shared_data.auton_publisher.publish(vel_msg)
             shared_data.mutex.release()
             return state_instance.goal_state
 
         shared_data.mutex.release()
         return state_instance.charge_forward_state
-
-
-class LeftAlignState(State):
-    def on_enter(self):
-        print("Entering LeftAlignState...:c")
-    def step(self) -> State:
-        return
-
 
 class CircleState(State):
     def on_enter(self):
@@ -563,7 +587,7 @@ class CircleState(State):
         shared_data.auton_publisher.publish(vel_msg)
         shared_data.mutex.release()
 
-        if time() - shared_data.start_time > shared_data.CIRCLE_TIMEOUT:
+        if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT * 3/4:
             shared_data.mutex.release()
             return state_instance.goal_state
         return state_instance.circle_state
@@ -584,7 +608,6 @@ def run_machine():
     state_instance.go_to_ar_state        = GoToARState()
     state_instance.align_state           = AlignState()
     state_instance.charge_forward_state  = ChargeForwardState()
-    state_instance.left_align_state      = LeftAlignState()
     state_instance.circle_state          = CircleState()
 
     cur_state = state_instance.start_state
