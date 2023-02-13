@@ -548,6 +548,7 @@ class ChargeForwardState(State):
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
+        
         print(f"LEFT WHEEL: {vel_msg.data[0]} \
                 RIGHT WHEEL: {vel_msg.data[1]}")
 
