@@ -3,6 +3,7 @@
 """http://wiki.ros.org/mavros for topic ref"""
 
 import sys
+import functools
 import rospy
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import TwistStamped
@@ -166,6 +167,18 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
 
     shared_data.mutex.release()
 
+
+# converts (x, y) coordinates relative to robot then transforms
+# to global coordinates using position, heading of robot
+# https://en.wikipedia.org/wiki/Transformation_matrix?useskin=vector#Rotation
+# heading in rad
+def rotate_and_translate_2d(x, y, pos_x, pos_y, heading):
+    x_prime = x * math.cos(-heading) - y * math.sin(-heading)
+    y_prime = x * math.sin(-heading) + y * math.cos(-heading)
+
+    x_prime_prime = x_prime + pos_x
+    y_prime_prime = y_prime + pos_y
+    return (x_prime_prime, y_prime_prime)
 
 
 # converts array to list of 2 tuples
