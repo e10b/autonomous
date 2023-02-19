@@ -160,6 +160,20 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
     shared_data.mutex.release()
 
 
+
+# converts array to list of 2 tuples
+# eg [1, 2, 3, 4, 5, 6] -> [(1, 2), (3, 4), (5, 6)]
+def convert_arr_to_waypoint_list(arr):
+    out = []
+    it = iter(arr)
+    for x in it:
+        try:
+            out.append((x, next(it)))
+        except StopIteration:
+            raise ValueError('array has odd number of elements')
+    return out
+
+
 def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints):
     """ waypoint_list is an array of repeating values. i.e. [lat, lon, should_look_for_ar, id, speed, lat, lon...]"""
     shared_data.mutex.acquire()
