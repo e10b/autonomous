@@ -398,48 +398,24 @@ class SpinState(State):
 class ForwardSpiralState(State):
     def on_enter(self):
         print("Entering ForwardSpiralState...")
-
         shared_data.mutex.acquire()
         shared_data.start_time = time()
-        pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
-                             radius=10, coils=4, step=2)
-        pts = pts[3:]
-        end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
-                            (pts[-1][0] - pts[-2][0]))
-        shared_data.controller = PurePursuit(pts=pts, 
-                                             start_ang=shared_data.cur_heading, 
-                                             end_ang=end_ang)
         shared_data.mutex.release()
-
+        
     def step(self) -> State:
-            
         shared_data.mutex.acquire()
-        cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
-        steering_radius = shared_data.controller.calc_steering(cur_pose)
-        steering_output = shared_data.STEERING_CONST * shared_data.cur_speed / steering_radius
+        offset = (time()-shared_data.start_time) * 5
         vel_msg = Float64MultiArray()
-        vel_msg.data = [shared_data.AUTON_SPEED - steering_output,
-                        shared_data.AUTON_SPEED + steering_output]
-        for i in range(len(vel_msg.data)):
-            vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+        vel_msg.data = [offset, shared_data.MAX_AUTON_SPEED]
         shared_data.auton_publisher.publish(vel_msg)
 
-        print(
-             "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
-             "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
-             "LEFT WHEEL", round(vel_msg.data[0], 3),
-             "RIGHT WHEEL", round(vel_msg.data[1], 3),
-        )
+        print(f"LEFT WHEEL: {vel_msg.data[0]} \
+                RIGHT WHEEL: {vel_msg.data[1]}")
 
         if shared_data.found_ar_flag:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
-
-        if shared_data.controller.did_reach_goal():
-            shared_data.mutex.release()
-
-            return state_instance.backward_spiral_state
-
+        
         if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT:  # done with spinning
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
@@ -457,7 +433,7 @@ class BackwardSpiralState(State):
         
     def step(self) -> State:
         shared_data.mutex.acquire()
-        offset = (time()-shared_data.start_time) * 10
+        offset = (time()-shared_data.start_time) * 5
         vel_msg = Float64MultiArray()
         vel_msg.data = [shared_data.MAX_AUTON_SPEED, offset]
         shared_data.auton_publisher.publish(vel_msg)
