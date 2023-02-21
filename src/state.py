@@ -109,8 +109,12 @@ def on_new_heading_msg(msg):
     shared_data.mutex.acquire()
 
     # print("HEADING", (msg.data*math.pi/180.0)-math.pi/2)
-    if msg.data > 180: msg.data -= 360  #TODO wrap. not the best approach but fine in general
-    shared_data.cur_heading = -((msg.data*math.pi/180.0)-math.pi/2)  # heading is just a float64
+    # if msg.data > 180: msg.data -= 360  #TODO wrap. not the best approach but fine in general
+    # shared_data.cur_heading = -((msg.data*math.pi/180.0)-math.pi/2)  # heading is just a float64
+    heading = -(msg.data - 90)  # use east as center and flip
+    if heading > 180:
+        heading -= 360
+    shared_data.cur_heading = heading * math.pi / 180
     
     shared_data.mutex.release()
 
@@ -144,9 +148,12 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
  #   shared_data.target_id2 = gps_waypoint_list[-2]
 
     shared_data.new_waypoints = [shared_data.cur_position]  # put the current position into the waypoints too
-    for i in range(0, len(gps_waypoint_list.data)):
-        if i % 5 == 0:
-            shared_data.new_waypoints.append(shared_data.gps_converter.gps_to_xy(gps_waypoint_list.data[i], gps_waypoint_list.data[i+1]))
+    for i in range(len(gps_waypoint_list.data) // 5):
+        lat, lon = gps_waypoint_list.data[i*5], gps_waypoint_list.data[i*5+1]
+        shared_data.new_waypoints.append(shared_data.gps_converter.gps_to_xy(lat, lon))
+    # for i in range(0, len(gps_waypoint_list.data)):
+    #     if i % 5 == 0:
+    #         shared_data.new_waypoints.append(shared_data.gps_converter.gps_to_xy(gps_waypoint_list.data[i], gps_waypoint_list.data[i+1]))
     print(shared_data.new_waypoints)
 
     shared_data.new_waypoints_flag = True
@@ -668,7 +675,7 @@ def run_machine():
         # if receive new position from ROS, go to new controller state
         if shared_data.new_waypoints_flag:
             cur_state = state_instance.new_controller_state
-        if type(last_state).__name__ != type(cur_state).__name__:
+        if last_state != cur_state:
             last_state.on_exit()
             last_state = cur_state
 
