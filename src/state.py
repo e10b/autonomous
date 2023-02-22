@@ -97,6 +97,9 @@ def on_new_gps_msg(msg):
 
     if shared_data.gps_converter is not None:
         shared_data.cur_position = shared_data.gps_converter.gps_to_xy(msg.latitude, msg.longitude)  # convert to xy
+        # print("appending to current position")
+        # print(msg)
+        # print(shared_data.cur_position)
         shared_data.position_history.append(shared_data.cur_position)  # add to history
     else:
         shared_data.gps_converter = GPS_2_NED(msg.latitude, msg.longitude)  # initialize converter
@@ -199,10 +202,16 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints):
 
     # if not running read points in
     if (not shared_data.obstacle_avoidance_running):
+        print("preparing to avoid obstacle")
         waypoint_list = convert_arr_to_waypoint_list(obstacle_avoidence_waypoints.data)
         pos = shared_data.cur_position
+        if pos is None:
+            print("pos is none")
+        waypoint_list.insert(0, pos)
         heading = shared_data.cur_heading
-        abs_waypoint_list = [rotate_and_translate_2d(*pt, *pos, *heading) for pt in waypoint_list]
+        print("waypoint list")
+        print(waypoint_list)
+        abs_waypoint_list = [rotate_and_translate_2d(*pt, *pos, heading) for pt in waypoint_list]
         shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list
 
         shared_data.new_obstacle_avoidance_waypoints_flag = True
@@ -300,6 +309,7 @@ class StartState(State):
         rospy.Subscriber(shared_data.WAYPOINTS_TOPIC_NAME, Float64MultiArray, on_receive_new_gps_waypoint)
         rospy.Subscriber(shared_data.VELOCITY_TOPIC_NAME, TwistStamped, on_new_velocity_msg)
         rospy.Subscriber(shared_data.ARTAG_TOPIC_NAME, Float64MultiArray, found_ar_tag)
+        rospy.Subscriber(shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME, Float64MultiArray, on_receive_new_obstacle_avoidance_waypoints)
 
     def step(self):
         return state_instance.start_state
@@ -340,14 +350,16 @@ class DriveState(State):
                         shared_data.AUTON_SPEED + steering_output]
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+
+        # print("publishing new auton message")
         shared_data.auton_publisher.publish(vel_msg)
-        print(
-             "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
-             "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
-             "LEFT WHEEL", round(vel_msg.data[0], 3),
-             "RIGHT WHEEL", round(vel_msg.data[1], 3),
-             "CUR_SPEED", round(shared_data.cur_speed, 3),
-        )
+        # print(
+        #      "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
+        #      "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
+        #      "LEFT WHEEL", round(vel_msg.data[0], 3),
+        #      "RIGHT WHEEL", round(vel_msg.data[1], 3),
+        #      "CUR_SPEED", round(shared_data.cur_speed, 3),
+        # )
 
         # Failed to turn in time
         if shared_data.should_look_for_ar and shared_data.found_ar_flag:
@@ -374,7 +386,13 @@ class ObstacleAvoidanceDriveState(State):
 
     def step(self):
         shared_data.mutex.acquire()
+        print("position")
+        print(shared_data.cur_position)
+        print(shared_data.new_waypoints)
+        print(shared_data.obstacle_avoidance_new_waypoints)
         cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
+        print("cur pose")
+        print(cur_pose)
         steering_radius = shared_data.obstacle_avoidance_controller.calc_steering(cur_pose)
         steering_output = shared_data.STEERING_CONST * shared_data.cur_speed / steering_radius
         vel_msg = Float64MultiArray()
@@ -395,6 +413,7 @@ class ObstacleAvoidanceDriveState(State):
             shared_data.new_waypoints = shared_data.new_waypoints[-1:]
             shared_data.new_waypoints.insert(0, shared_data.cur_position)
             shared_data.mutex.release()
+            print("failed to turn in time")
             return state_instance.new_obstacle_avoidance_controller_state
         if shared_data.obstacle_avoidance_controller.did_reach_goal():
             shared_data.mutex.release()
@@ -408,17 +427,17 @@ class NewObstacleAvoidanceControllerState(State):
     def on_enter(self):
         print("Entering NewObstacleAvoidanceControllerState...")
         shared_data.mutex.acquire()
+        shared_data.new_obstacle_avoidance_waypoints_flag = False  # invalidate the flag so don't enter again
         # diff btw the last two waypoints
         
-        diff = np.array(shared_data.new_waypoints[-1]) - np.array(shared_data.new_waypoints[-2])
+        diff = np.array(shared_data.obstacle_avoidance_new_waypoints[-1]) - np.array(shared_data.obstacle_avoidance_new_waypoints[-2])
         next_orientation = math.atan2(diff[1], diff[0])  # calc the angle of the line connecting the last two waypoints
         # shared_data.controller = PurePursuit(shared_data.new_waypoints,
         #                                      shared_data.cur_heading,
         #                                      next_orientation)
-        shared_data.obstacle_avoidance_controller = PurePursuit(shared_data.new_waypoints,
+        shared_data.obstacle_avoidance_controller = PurePursuit(shared_data.obstacle_avoidance_new_waypoints,
                                              shared_data.cur_heading,
                                              next_orientation)
-        shared_data.new_obstacle_avoidance_waypoints_flag = False  # invalidate the flag so don't enter again
         shared_data.mutex.release()
 
     def step(self):
