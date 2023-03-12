@@ -22,14 +22,14 @@ from pure_pursuit.spiral_generation import get_spiral
 class SharedData():
     ################ Constant section ################
     RATE = 30
-    TOLERANCE = 2.5
+    TOLERANCE = 2
     HIST_POSE_LEN = 100
     AUTON_SPEED = 50
     MAX_AUTON_SPEED = 120
-    SPIN_SPEED = 45
+    SPIN_SPEED = 50
     STEERING_CONST = 50
     DRIVE_TIMEOUT = 30
-    SPIN_TIMEOUT = 10
+    SPIN_TIMEOUT = 30
     AR_TIMEOUT = 30
     AR_TOLERANCE = 0.062 # size of ar tag we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
@@ -264,7 +264,8 @@ class NewControllerState(State):
         next_orientation = math.atan2(diff[1], diff[0])  # calc the angle of the line connecting the last two waypoints
         shared_data.controller = PurePursuit(shared_data.new_waypoints, 
                                              shared_data.cur_heading, 
-                                             next_orientation)
+                                             next_orientation,
+                                             tolerance=shared_data.TOLERANCE)
         shared_data.new_waypoints_flag = False  # invalidate the flag so don't enter again
         shared_data.mutex.release()
     def step(self):
@@ -351,6 +352,7 @@ class GoalState(State):
 
         shared_data.mutex.acquire()
         reset_data()
+        cur_state_publisher.publish("goal_reached")
         shared_data.mutex.release()
     def step(self) -> State:
         return state_instance.goal_state    
@@ -404,9 +406,9 @@ class ForwardSpiralState(State):
         
     def step(self) -> State:
         shared_data.mutex.acquire()
-        offset = (time()-shared_data.start_time) * 5
+        t = time()-shared_data.start_time
         vel_msg = Float64MultiArray()
-        vel_msg.data = [offset, shared_data.MAX_AUTON_SPEED]
+        vel_msg.data = [10+1.35*t, 70+1.2*t]
         shared_data.auton_publisher.publish(vel_msg)
 
         print(f"LEFT WHEEL: {vel_msg.data[0]} \
@@ -433,9 +435,9 @@ class BackwardSpiralState(State):
         
     def step(self) -> State:
         shared_data.mutex.acquire()
-        offset = (time()-shared_data.start_time) * 5
+        offset = 10+(time()-shared_data.start_time) * 1.5
         vel_msg = Float64MultiArray()
-        vel_msg.data = [shared_data.MAX_AUTON_SPEED, offset]
+        vel_msg.data = [shared_data.SPIN_SPEED, offset]
         shared_data.auton_publisher.publish(vel_msg)
 
         print(f"LEFT WHEEL: {vel_msg.data[0]} \
@@ -466,16 +468,19 @@ class GoToARState(State):
         vel_msg = Float64MultiArray()
 
         off_center = shared_data.ar_cX - 0.5
+        print(off_center)
         vel_msg.data = [
-            shared_data.AUTON_SPEED / 3 + off_center * shared_data.STEERING_CONST * 3,
-            shared_data.AUTON_SPEED / 3 - off_center * shared_data.STEERING_CONST * 3,
+            shared_data.AUTON_SPEED + off_center * shared_data.STEERING_CONST * 3,
+            shared_data.AUTON_SPEED - off_center * shared_data.STEERING_CONST * 3,
         ]
+
+
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
 
-        print(f"LEFT WHEEL: {vel_msg.data[0]} \
-                RIGHT WHEEL: {vel_msg.data[1]}")
+        #print(f"LEFT WHEEL: {vel_msg.data[0]} \
+        #        RIGHT WHEEL: {vel_msg.data[1]}")
 
         # if the AR tag is big enough in frame, must be close enough
 
