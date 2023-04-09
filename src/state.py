@@ -29,7 +29,7 @@ class SharedData():
     SPIN_SPEED = 50
     STEERING_CONST = 50
     DRIVE_TIMEOUT = 30
-    SPIN_TIMEOUT = 30
+    SPIN_TIMEOUT = 15
     AR_TIMEOUT = 30
     AR_TOLERANCE = 0.062 # size of ar tag we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
@@ -63,7 +63,7 @@ class SharedData():
 
     should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints  
     found_ar_flag      = False  # if ar tag has been detected, can go to ar tag state
-    do_gate_task       = False  # if two tags detected, then do gate task
+    do_gate_task       = True  # if two tags detected, then do gate task
     do_circle_task     = False  # if one tag detected, then do circle task
 
     ar_cX              = 0      # central x position of detected ar tag
@@ -199,7 +199,7 @@ def clamp(num, minNum, maxNum):
 def reset_data():
     shared_data.should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints  
     shared_data.found_ar_flag      = False  # if ar tag has been detected, can go to ar tag state
-    shared_data.do_gate_task       = False  # if two tags detected, then do gate task
+    shared_data.do_gate_task       = True  # if two tags detected, then do gate task
     shared_data.do_circle_task     = False  # if one tag detected, then do circle task
 
     shared_data.ar_cX              = 0      # central x position of detected ar tag
@@ -288,13 +288,13 @@ class DriveState(State):
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
-        print(
-             "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
-             "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
-             "LEFT WHEEL", round(vel_msg.data[0], 3),
-             "RIGHT WHEEL", round(vel_msg.data[1], 3),
-             "CUR_SPEED", round(shared_data.cur_speed, 3),
-        )
+        # print(
+        #      "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
+        #      "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
+        #      "LEFT WHEEL", round(vel_msg.data[0], 3),
+        #      "RIGHT WHEEL", round(vel_msg.data[1], 3),
+        #      "CUR_SPEED", round(shared_data.cur_speed, 3),
+        # )
 
         # Failed to turn in time
         if shared_data.should_look_for_ar and shared_data.found_ar_flag:
@@ -352,7 +352,7 @@ class GoalState(State):
 
         shared_data.mutex.acquire()
         reset_data()
-        cur_state_publisher.publish("goal_reached")
+        shared_data.cur_state_publisher.publish("goal_reached")
         shared_data.mutex.release()
     def step(self) -> State:
         return state_instance.goal_state    
@@ -533,6 +533,10 @@ class AlignState(State):
             if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT + shared_data.BACKUP_TIMEOUT:
                 vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
                 shared_data.auton_publisher.publish(vel_msg)
+                if shared_data.ar_size > 0:
+                    print("Saw AR Tag Id: 0.0")
+                if shared_data.ar_size2 > 0:
+                    print("Saw AR Tag ID: 1.0")
                 shared_data.mutex.release()
                 return state_instance.align_state
             else:
@@ -554,6 +558,7 @@ class AlignState(State):
            shared_data.ar_size <= 0.01 or\
            shared_data.ar_size2 <= 0.01:
             shared_data.do_circle_task = True
+            print("Should do circle")
             shared_data.mutex.release()
             return state_instance.spin_state
         
@@ -616,8 +621,8 @@ class CircleState(State):
         print(f"Spinning 270 deg for {round(time()-shared_data.start_time, 3)} seconds")
 
         vel_msg.data = [
-            shared_data.MAX_AUTON_SPEED/2 - shared_data.SPIN_SPEED,
-            shared_data.MAX_AUTON_SPEED/2 + shared_data.SPIN_SPEED,
+            shared_data.MAX_AUTON_SPEED/2 - shared_data.SPIN_SPEED/2,
+            shared_data.MAX_AUTON_SPEED/2 + shared_data.SPIN_SPEED/2,
         ]
         shared_data.auton_publisher.publish(vel_msg)
 
@@ -650,6 +655,7 @@ def run_machine():
     cur_state = state_instance.start_state
     cur_state.on_enter()
     last_state = cur_state
+    #cur_state = state_instance.goal_state
     
     while not rospy.is_shutdown():
         rate.sleep()
