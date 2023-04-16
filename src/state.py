@@ -119,8 +119,12 @@ def on_new_heading_msg(msg):
     shared_data.mutex.acquire()
 
     # print("HEADING", (msg.data*math.pi/180.0)-math.pi/2)
-    if msg.data > 180: msg.data -= 360  #TODO wrap. not the best approach but fine in general
-    shared_data.cur_heading = -((msg.data*math.pi/180.0)-math.pi/2)  # heading is just a float64
+    # if msg.data > 180: msg.data -= 360  #TODO wrap. not the best approach but fine in general
+    # shared_data.cur_heading = -((msg.data*math.pi/180.0)-math.pi/2)  # heading is just a float64
+    heading = -(msg.data - 90)  # use east as center and flip
+    if heading > 180:
+        heading -= 360
+    shared_data.cur_heading = heading * math.pi / 180
     
     shared_data.mutex.release()
 
@@ -154,9 +158,12 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
  #   shared_data.target_id2 = gps_waypoint_list[-2]
 
     shared_data.new_waypoints = [shared_data.cur_position]  # put the current position into the waypoints too
-    for i in range(0, len(gps_waypoint_list.data)):
-        if i % 5 == 0:
-            shared_data.new_waypoints.append(shared_data.gps_converter.gps_to_xy(gps_waypoint_list.data[i], gps_waypoint_list.data[i+1]))
+    for i in range(len(gps_waypoint_list.data) // 5):
+        lat, lon = gps_waypoint_list.data[i*5], gps_waypoint_list.data[i*5+1]
+        shared_data.new_waypoints.append(shared_data.gps_converter.gps_to_xy(lat, lon))
+    # for i in range(0, len(gps_waypoint_list.data)):
+    #     if i % 5 == 0:
+    #         shared_data.new_waypoints.append(shared_data.gps_converter.gps_to_xy(gps_waypoint_list.data[i], gps_waypoint_list.data[i+1]))
     print(shared_data.new_waypoints)
 
     shared_data.new_waypoints_flag = True
@@ -164,13 +171,16 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
     shared_data.mutex.release()
 
 
-# converts (x, y) coordinates relative to robot then transforms
+# converts (x, y) coordinates relative to robot (e.g. (0 , 1) is directly
+# ahead of front of robot) then transforms
 # to global coordinates using position, heading of robot
-# https://en.wikipedia.org/wiki/Transformation_matrix?useskin=vector#Rotation
-# heading in rad
+# heading in rad and is unit circle (pi / 2 is straight ahead)
 def rotate_and_translate_2d(x, y, pos_x, pos_y, heading):
-    x_prime = x * math.cos(-heading) - y * math.sin(-heading)
-    y_prime = x * math.sin(-heading) + y * math.cos(-heading)
+    # convert heading so that 0 is straight ahead
+    offset_heading = heading - math.pi / 2
+    # https://en.wikipedia.org/wiki/Transformation_matrix?useskin=vector#Rotation
+    x_prime = x * math.cos(offset_heading) - y * math.sin(offset_heading)
+    y_prime = x * math.sin(offset_heading) + y * math.cos(offset_heading)
 
     x_prime_prime = x_prime + pos_x
     y_prime_prime = y_prime + pos_y
@@ -524,48 +534,24 @@ class SpinState(State):
 class ForwardSpiralState(State):
     def on_enter(self):
         print("Entering ForwardSpiralState...")
-
         shared_data.mutex.acquire()
         shared_data.start_time = time()
-        pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
-                             radius=10, coils=4, step=2)
-        pts = pts[3:]
-        end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
-                            (pts[-1][0] - pts[-2][0]))
-        shared_data.controller = PurePursuit(pts=pts, 
-                                             start_ang=shared_data.cur_heading, 
-                                             end_ang=end_ang)
         shared_data.mutex.release()
-
+        
     def step(self) -> State:
-            
         shared_data.mutex.acquire()
-        cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
-        steering_radius = shared_data.controller.calc_steering(cur_pose)
-        steering_output = shared_data.STEERING_CONST * shared_data.cur_speed / steering_radius
+        offset = (time()-shared_data.start_time) * 5
         vel_msg = Float64MultiArray()
-        vel_msg.data = [shared_data.AUTON_SPEED - steering_output,
-                        shared_data.AUTON_SPEED + steering_output]
-        for i in range(len(vel_msg.data)):
-            vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+        vel_msg.data = [offset, shared_data.MAX_AUTON_SPEED]
         shared_data.auton_publisher.publish(vel_msg)
 
-        print(
-             "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
-             "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
-             "LEFT WHEEL", round(vel_msg.data[0], 3),
-             "RIGHT WHEEL", round(vel_msg.data[1], 3),
-        )
+        print(f"LEFT WHEEL: {vel_msg.data[0]} \
+                RIGHT WHEEL: {vel_msg.data[1]}")
 
         if shared_data.found_ar_flag:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
-
-        if shared_data.controller.did_reach_goal():
-            shared_data.mutex.release()
-
-            return state_instance.backward_spiral_state
-
+        
         if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT:  # done with spinning
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
@@ -583,7 +569,7 @@ class BackwardSpiralState(State):
         
     def step(self) -> State:
         shared_data.mutex.acquire()
-        offset = (time()-shared_data.start_time) * 10
+        offset = (time()-shared_data.start_time) * 5
         vel_msg = Float64MultiArray()
         vel_msg.data = [shared_data.MAX_AUTON_SPEED, offset]
         shared_data.auton_publisher.publish(vel_msg)
@@ -807,7 +793,7 @@ def run_machine():
         # help
         if shared_data.new_waypoints_flag and (type(last_state).__name__ is not NewObstacleAvoidanceControllerState.__name__ ) and (type(last_state).__name__ is not ObstacleAvoidanceDriveState.__name__):
             cur_state = state_instance.new_controller_state
-        if type(last_state).__name__ != type(cur_state).__name__:
+        if last_state != cur_state:
             last_state.on_exit()
             last_state = cur_state
 
