@@ -171,13 +171,16 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
     shared_data.mutex.release()
 
 
-# converts (x, y) coordinates relative to robot then transforms
+# converts (x, y) coordinates relative to robot (e.g. (0 , 1) is directly
+# ahead of front of robot) then transforms
 # to global coordinates using position, heading of robot
-# https://en.wikipedia.org/wiki/Transformation_matrix?useskin=vector#Rotation
-# heading in rad
+# heading in rad and is unit circle (pi / 2 is straight ahead)
 def rotate_and_translate_2d(x, y, pos_x, pos_y, heading):
-    x_prime = x * math.cos(-heading) - y * math.sin(-heading)
-    y_prime = x * math.sin(-heading) + y * math.cos(-heading)
+    # convert heading so that 0 is straight ahead
+    offset_heading = heading - math.pi / 2
+    # https://en.wikipedia.org/wiki/Transformation_matrix?useskin=vector#Rotation
+    x_prime = x * math.cos(offset_heading) - y * math.sin(offset_heading)
+    y_prime = x * math.sin(offset_heading) + y * math.cos(offset_heading)
 
     x_prime_prime = x_prime + pos_x
     y_prime_prime = y_prime + pos_y
