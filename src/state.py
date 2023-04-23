@@ -23,14 +23,14 @@ from pure_pursuit.spiral_generation import get_spiral
 class SharedData():
     ################ Constant section ################
     RATE = 30
-    TOLERANCE = 2.5
+    TOLERANCE = 2
     HIST_POSE_LEN = 100
     AUTON_SPEED = 50
     MAX_AUTON_SPEED = 120
-    SPIN_SPEED = 45
+    SPIN_SPEED = 50
     STEERING_CONST = 50
     DRIVE_TIMEOUT = 30
-    SPIN_TIMEOUT = 10
+    SPIN_TIMEOUT = 15
     AR_TIMEOUT = 30
     AR_TOLERANCE = 0.062 # size of ar tag we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
@@ -69,7 +69,7 @@ class SharedData():
 
     should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints  
     found_ar_flag      = False  # if ar tag has been detected, can go to ar tag state
-    do_gate_task       = False  # if two tags detected, then do gate task
+    do_gate_task       = True  # if two tags detected, then do gate task
     do_circle_task     = False  # if one tag detected, then do circle task
 
     ar_cX              = 0      # central x position of detected ar tag
@@ -261,7 +261,7 @@ def clamp(num, minNum, maxNum):
 def reset_data():
     shared_data.should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints  
     shared_data.found_ar_flag      = False  # if ar tag has been detected, can go to ar tag state
-    shared_data.do_gate_task       = False  # if two tags detected, then do gate task
+    shared_data.do_gate_task       = True  # if two tags detected, then do gate task
     shared_data.do_circle_task     = False  # if one tag detected, then do circle task
 
     shared_data.ar_cX              = 0      # central x position of detected ar tag
@@ -331,7 +331,8 @@ class NewControllerState(State):
                                              next_orientation)
         # shared_data.obstacle_avoidance_controller = PurePursuit(shared_data.new_waypoints,
         #                                      shared_data.cur_heading,
-        #                                      next_orientation)
+                                             next_orientation,
+                                             tolerance=shared_data.TOLERANCE)
         shared_data.new_waypoints_flag = False  # invalidate the flag so don't enter again
         shared_data.mutex.release()
     def step(self):
@@ -487,6 +488,7 @@ class GoalState(State):
 
         shared_data.mutex.acquire()
         reset_data()
+        shared_data.cur_state_publisher.publish("goal_reached")
         shared_data.mutex.release()
     def step(self) -> State:
         return state_instance.goal_state    
@@ -540,9 +542,9 @@ class ForwardSpiralState(State):
         
     def step(self) -> State:
         shared_data.mutex.acquire()
-        offset = (time()-shared_data.start_time) * 5
+        t = time()-shared_data.start_time
         vel_msg = Float64MultiArray()
-        vel_msg.data = [offset, shared_data.MAX_AUTON_SPEED]
+        vel_msg.data = [10+1.35*t, 70+1.2*t]
         shared_data.auton_publisher.publish(vel_msg)
 
         print(f"LEFT WHEEL: {vel_msg.data[0]} \
@@ -569,9 +571,9 @@ class BackwardSpiralState(State):
         
     def step(self) -> State:
         shared_data.mutex.acquire()
-        offset = (time()-shared_data.start_time) * 5
+        offset = 10+(time()-shared_data.start_time) * 1.5
         vel_msg = Float64MultiArray()
-        vel_msg.data = [shared_data.MAX_AUTON_SPEED, offset]
+        vel_msg.data = [shared_data.SPIN_SPEED, offset]
         shared_data.auton_publisher.publish(vel_msg)
 
         print(f"LEFT WHEEL: {vel_msg.data[0]} \
@@ -602,16 +604,19 @@ class GoToARState(State):
         vel_msg = Float64MultiArray()
 
         off_center = shared_data.ar_cX - 0.5
+        print(off_center)
         vel_msg.data = [
-            shared_data.AUTON_SPEED / 3 + off_center * shared_data.STEERING_CONST * 3,
-            shared_data.AUTON_SPEED / 3 - off_center * shared_data.STEERING_CONST * 3,
+            shared_data.AUTON_SPEED + off_center * shared_data.STEERING_CONST * 3,
+            shared_data.AUTON_SPEED - off_center * shared_data.STEERING_CONST * 3,
         ]
+
+
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
 
-        print(f"LEFT WHEEL: {vel_msg.data[0]} \
-                RIGHT WHEEL: {vel_msg.data[1]}")
+        #print(f"LEFT WHEEL: {vel_msg.data[0]} \
+        #        RIGHT WHEEL: {vel_msg.data[1]}")
 
         # if the AR tag is big enough in frame, must be close enough
 
@@ -664,6 +669,10 @@ class AlignState(State):
             if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT + shared_data.BACKUP_TIMEOUT:
                 vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
                 shared_data.auton_publisher.publish(vel_msg)
+                if shared_data.ar_size > 0:
+                    print("Saw AR Tag Id: 0.0")
+                if shared_data.ar_size2 > 0:
+                    print("Saw AR Tag ID: 1.0")
                 shared_data.mutex.release()
                 return state_instance.align_state
             else:
@@ -685,6 +694,7 @@ class AlignState(State):
            shared_data.ar_size <= 0.01 or\
            shared_data.ar_size2 <= 0.01:
             shared_data.do_circle_task = True
+            print("Should do circle")
             shared_data.mutex.release()
             return state_instance.spin_state
         
@@ -747,8 +757,8 @@ class CircleState(State):
         print(f"Spinning 270 deg for {round(time()-shared_data.start_time, 3)} seconds")
 
         vel_msg.data = [
-            shared_data.MAX_AUTON_SPEED/2 - shared_data.SPIN_SPEED,
-            shared_data.MAX_AUTON_SPEED/2 + shared_data.SPIN_SPEED,
+            shared_data.MAX_AUTON_SPEED/2 - shared_data.SPIN_SPEED/2,
+            shared_data.MAX_AUTON_SPEED/2 + shared_data.SPIN_SPEED/2,
         ]
         shared_data.auton_publisher.publish(vel_msg)
 
@@ -783,6 +793,7 @@ def run_machine():
     cur_state = state_instance.start_state
     cur_state.on_enter()
     last_state = cur_state
+    #cur_state = state_instance.goal_state
     
     while not rospy.is_shutdown():
         rate.sleep()
