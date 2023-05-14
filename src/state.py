@@ -29,14 +29,8 @@ class SharedData():
     SPIN_SPEED = 50
     STEERING_CONST = 50
     DRIVE_TIMEOUT = 30
-<<<<<<< HEAD
     AR_TIMEOUT = 20
     AR_TOLERANCE = 0.002 # size of ar tag we want to see before we stop
-=======
-    SPIN_TIMEOUT = 15
-    AR_TIMEOUT = 30
-    AR_TOLERANCE = 0.062 # size of ar tag we want to see before we stop
->>>>>>> 3a728a7a99ea873a7be0c129710c104903a10053
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = 5.0 * math.pi / 180.0 # Tolerance for checking if cur angle is within desired angle
     BACKUP_TIMEOUT = 2
@@ -396,7 +390,6 @@ class ForwardSpiralState(State):
         print("Entering ForwardSpiralState...")
         shared_data.mutex.acquire()
         shared_data.start_time = time()
-<<<<<<< HEAD
         pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
                              radius=10, coils=4, step=2, direction=1)
         pts = pts[3:]
@@ -405,40 +398,29 @@ class ForwardSpiralState(State):
         shared_data.controller = PurePursuit(pts=pts, 
                                              start_ang=shared_data.cur_heading, 
                                              end_ang=end_ang)
-=======
->>>>>>> 3a728a7a99ea873a7be0c129710c104903a10053
         shared_data.mutex.release()
         
     def step(self) -> State:
         shared_data.mutex.acquire()
-<<<<<<< HEAD
         cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
         steering_radius = shared_data.controller.calc_steering(cur_pose)
         steering_output = shared_data.STEERING_CONST * shared_data.AUTON_SPEED / steering_radius / 2
-=======
-        t = time()-shared_data.start_time
->>>>>>> 3a728a7a99ea873a7be0c129710c104903a10053
         vel_msg = Float64MultiArray()
-        vel_msg.data = [10+1.35*t, 70+1.2*t]
+        vel_msg.data = [shared_data.AUTON_SPEED - steering_output,
+                        shared_data.AUTON_SPEED + steering_output]
+        for i in range(len(vel_msg.data)):
+            vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
-
-        print(f"LEFT WHEEL: {vel_msg.data[0]} \
-                RIGHT WHEEL: {vel_msg.data[1]}")
-
+        
         if shared_data.found_ar_flag:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
-<<<<<<< HEAD
 
         if shared_data.controller.did_reach_goal():
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
         if time() - shared_data.start_time > shared_data.AR_TIMEOUT:  # done with spinning
-=======
-        
-        if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT:  # done with spinning
->>>>>>> 3a728a7a99ea873a7be0c129710c104903a10053
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
@@ -463,7 +445,6 @@ class BackwardSpiralState(State):
         
     def step(self) -> State:
         shared_data.mutex.acquire()
-<<<<<<< HEAD
         cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
         steering_radius = shared_data.controller.calc_steering(cur_pose)
         steering_output = shared_data.STEERING_CONST * shared_data.AUTON_SPEED / steering_radius / 2
@@ -472,19 +453,14 @@ class BackwardSpiralState(State):
                         shared_data.AUTON_SPEED + steering_output]
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-=======
-        offset = 10+(time()-shared_data.start_time) * 1.5
-        vel_msg = Float64MultiArray()
-        vel_msg.data = [shared_data.SPIN_SPEED, offset]
->>>>>>> 3a728a7a99ea873a7be0c129710c104903a10053
         shared_data.auton_publisher.publish(vel_msg)
 
-        print(
-             "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
-             "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
-             "LEFT WHEEL", round(vel_msg.data[0], 3),
-             "RIGHT WHEEL", round(vel_msg.data[1], 3),
-        )
+        # print(
+        #      "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
+        #      "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
+        #      "LEFT WHEEL", round(vel_msg.data[0], 3),
+        #      "RIGHT WHEEL", round(vel_msg.data[1], 3),
+        # )
 
         if shared_data.found_ar_flag:
             shared_data.mutex.release()
