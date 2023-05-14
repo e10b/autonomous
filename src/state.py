@@ -29,10 +29,10 @@ class SharedData():
     SPIN_SPEED = 45
     STEERING_CONST = 50
     DRIVE_TIMEOUT = 30
-    SPIN_TIMEOUT = 10
-    AR_TIMEOUT = 30
-    AR_TOLERANCE = 0.062 # size of ar tag we want to see before we stop
+    AR_TIMEOUT = 20
+    AR_TOLERANCE = 0.002 # size of ar tag we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
+    SPIN_TOLERANCE = 5.0 * math.pi / 180.0 # Tolerance for checking if cur angle is within desired angle
     BACKUP_TIMEOUT = 2
     AUTON_TOPIC_NAME     = "/autonomous_drive_train"
     GPS_TOPIC_NAME       = "/mavros/global_position/global"
@@ -79,8 +79,9 @@ class SharedData():
     target_id          = 0      # id value of desired ar tag
     target_id2         = 1.0      # id value of desired ar tag 2 for gate task
 
-    controller = None  # pure pursuit controller
-    start_time = None  # time stamp of when a state was first entered
+    controller    = None  # pure pursuit controller
+    start_time    = None  # time stamp of when a state was first entered
+    start_heading = None  # heading stamp to mark when we end spinning
 
 shared_data = SharedData()  # the global state object
 
@@ -141,7 +142,7 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
     shared_data.should_look_for_ar = gps_waypoint_list.data[-3]
  #   shared_data.do_gate_task = gps_waypoint_list[-2] != 0
     shared_data.target_id = gps_waypoint_list.data[-2]
- #   shared_data.target_id2 = gps_waypoint_list[-2]
+ #   shared_data.target_id2 = gps_waypoint_list.data[-2]
 
     shared_data.new_waypoints = [shared_data.cur_position]  # put the current position into the waypoints too
     for i in range(0, len(gps_waypoint_list.data)):
@@ -161,29 +162,14 @@ def found_ar_tag(msg):
     if shared_data.target_id == msg.data[3]:
         [shared_data.ar_cX, shared_data.ar_cY,
          shared_data.ar_size, shared_data.ar_id] = msg.data
+        shared_data.found_ar_flag = True
 
     if shared_data.target_id2 == msg.data[3]:
         [shared_data.ar_cX2, shared_data.ar_cY2,
          shared_data.ar_size2, shared_data.ar_id2] = msg.data
-    """elif shared_data.target_id == msg.data[1][4]:
-        [shared_data.ar_cX, shared_data.ar_cY,
-         shared_data.ar_size, shared_data.ar_id] = msg.data[1]
-
-    if shared_data.target_id2 == msg.data[0][3]:
-        [shared_data.ar_cX2, shared_data.ar_cY2,
-         shared_data.ar_size2, shared_data.ar_id2] = msg.data[0]
-    elif shared_data.target_id2 == msg.data[1][4]:
-        [shared_data.ar_cX2, shared_data.ar_cY2,
-         shared_data.ar_size2, shared_data.ar_id2] = msg.data[1]"""
-         
-    if shared_data.ar_id != shared_data.target_id:
-        shared_data.mutex.release()
-        return
-
-    shared_data.found_ar_flag = True
+        shared_data.found_ar_flag = True
 
     shared_data.mutex.release()
-
 
 def clamp(num, minNum, maxNum):
     return max(min(num, maxNum), minNum)
@@ -273,7 +259,7 @@ class DriveState(State):
         shared_data.mutex.acquire()
         cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
         steering_radius = shared_data.controller.calc_steering(cur_pose)
-        steering_output = shared_data.STEERING_CONST * shared_data.cur_speed / steering_radius
+        steering_output = shared_data.STEERING_CONST * shared_data.AUTON_SPEED / steering_radius / 2
         vel_msg = Float64MultiArray()
         vel_msg.data = [shared_data.AUTON_SPEED - steering_output, 
                         shared_data.AUTON_SPEED + steering_output]
@@ -367,6 +353,7 @@ class SpinState(State):
 
         shared_data.mutex.acquire()
         shared_data.start_time = time()
+        shared_data.start_heading = shared_data.cur_heading
         shared_data.mutex.release()
     def step(self) -> State:
         shared_data.mutex.acquire()
@@ -380,7 +367,8 @@ class SpinState(State):
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
 
-        if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT:  # done with spinning
+        if time() - shared_data.start_time > 1 and \
+           abs(shared_data.cur_heading - shared_data.start_heading) < shared_data.SPIN_TOLERANCE:  # done with spinning
             shared_data.mutex.release()
             return state_instance.forward_spiral_state
         
@@ -395,7 +383,7 @@ class ForwardSpiralState(State):
         shared_data.mutex.acquire()
         shared_data.start_time = time()
         pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
-                             radius=10, coils=4, step=2)
+                             radius=10, coils=4, step=2, direction=1)
         pts = pts[3:]
         end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
                             (pts[-1][0] - pts[-2][0]))
@@ -405,11 +393,10 @@ class ForwardSpiralState(State):
         shared_data.mutex.release()
 
     def step(self) -> State:
-            
         shared_data.mutex.acquire()
         cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
         steering_radius = shared_data.controller.calc_steering(cur_pose)
-        steering_output = shared_data.STEERING_CONST * shared_data.cur_speed / steering_radius
+        steering_output = shared_data.STEERING_CONST * shared_data.AUTON_SPEED / steering_radius / 2
         vel_msg = Float64MultiArray()
         vel_msg.data = [shared_data.AUTON_SPEED - steering_output,
                         shared_data.AUTON_SPEED + steering_output]
@@ -430,10 +417,9 @@ class ForwardSpiralState(State):
 
         if shared_data.controller.did_reach_goal():
             shared_data.mutex.release()
-
             return state_instance.backward_spiral_state
 
-        if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT:  # done with spinning
+        if time() - shared_data.start_time > shared_data.AR_TIMEOUT:  # done with spinning
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
@@ -446,25 +432,46 @@ class BackwardSpiralState(State):
         print("Entering BackwardSpiralState...")
         shared_data.mutex.acquire()
         shared_data.start_time = time()
+        pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
+                             radius=10, coils=4, step=2, direction=-1)
+        pts = pts[3:]
+        end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
+                            (pts[-1][0] - pts[-2][0]))
+        shared_data.controller = PurePursuit(pts=pts, 
+                                             start_ang=shared_data.cur_heading, 
+                                             end_ang=end_ang)
         shared_data.mutex.release()
         
     def step(self) -> State:
         shared_data.mutex.acquire()
-        offset = (time()-shared_data.start_time) * 10
+        cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
+        steering_radius = shared_data.controller.calc_steering(cur_pose)
+        steering_output = shared_data.STEERING_CONST * shared_data.AUTON_SPEED / steering_radius / 2
         vel_msg = Float64MultiArray()
-        vel_msg.data = [shared_data.MAX_AUTON_SPEED, offset]
+        vel_msg.data = [shared_data.AUTON_SPEED - steering_output,
+                        shared_data.AUTON_SPEED + steering_output]
+        for i in range(len(vel_msg.data)):
+            vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
 
-        print(f"LEFT WHEEL: {vel_msg.data[0]} \
-                RIGHT WHEEL: {vel_msg.data[1]}")
+        print(
+             "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
+             "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
+             "LEFT WHEEL", round(vel_msg.data[0], 3),
+             "RIGHT WHEEL", round(vel_msg.data[1], 3),
+        )
 
         if shared_data.found_ar_flag:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
-        
-        if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT:  # done with spinning
+
+        if shared_data.controller.did_reach_goal():
             shared_data.mutex.release()
-            return state_instance.retry_state
+            return state_instance.backward_spiral_state
+
+        if time() - shared_data.start_time > shared_data.AR_TIMEOUT:  # done with spinning
+            shared_data.mutex.release()
+            return state_instance.backward_spiral_state
 
         shared_data.mutex.release()
         return state_instance.backward_spiral_state
@@ -526,6 +533,7 @@ class AlignState(State):
 
         shared_data.mutex.acquire()
         shared_data.start_time = time()
+        shared_data.start_heading = shared_data.cur_heading
         shared_data.mutex.release()
     def step(self) -> State:
         shared_data.mutex.acquire()
@@ -542,7 +550,8 @@ class AlignState(State):
         # Spin util both tags are in frame
         if shared_data.ar_size <= 0 or\
            shared_data.ar_size2 <= 0:
-            if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT + shared_data.BACKUP_TIMEOUT:
+            if time() - shared_data.start_time < 1 + shared_data.BACKUP_TIMEOUT and\
+               abs(shared_data.cur_heading - shared_data.start_heading) < shared_data.SPIN_TOLERANCE:
                 vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
                 shared_data.auton_publisher.publish(vel_msg)
                 shared_data.mutex.release()
@@ -552,8 +561,8 @@ class AlignState(State):
                 return state_instance.circle_state
 
         # Spin until both tags are centered
-        if (shared_data.ar_cX + shared_data.ar_cX2)/2 >= 0.6 or\
-           (shared_data.ar_cX + shared_data.ar_cX2)/2 <= 0.4:
+        if (shared_data.ar_x_pose + shared_data.ar_x_pose2)/2 >= 0.6 or\
+           (shared_data.ar_x_pose + shared_data.ar_x_pose2)/2 <= 0.4:
             if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT + shared_data.BACKUP_TIMEOUT:
                 vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
                 shared_data.auton_publisher.publish(vel_msg)
@@ -561,7 +570,7 @@ class AlignState(State):
                 return state_instance.align_state
 
         # If the distance between 2 tags is too small or only see 1 tag, go back to that tag
-        distbtwntags = abs(shared_data.ar_cX - shared_data.ar_cX2)
+        distbtwntags = abs(shared_data.ar_x_pose - shared_data.ar_x_pose2)
         if distbtwntags < shared_data.AR_TAGS_DIST_TOLERANCE or\
            shared_data.ar_size <= 0.01 or\
            shared_data.ar_size2 <= 0.01:
@@ -579,7 +588,7 @@ class ChargeForwardState(State):
     def step(self) -> State:
         shared_data.mutex.acquire()
         vel_msg = Float64MultiArray()
-        off_center = (shared_data.ar_cX + shared_data.ar_cX2)/2 - 0.5
+        off_center = (shared_data.ar_x_pose + shared_data.ar_x_pose2)/2 - 0.5
         vel_msg.data = [
             shared_data.AUTON_SPEED / 3 + off_center * shared_data.STEERING_CONST * 3,
             shared_data.AUTON_SPEED / 3 - off_center * shared_data.STEERING_CONST * 3,
@@ -613,12 +622,14 @@ class CircleState(State):
 
         shared_data.mutex.acquire()
         shared_data.start_time = time()
+        shared_data.start_heading = shared_data.cur_heading
         shared_data.mutex.release()
     def step(self) -> State:
         shared_data.mutex.acquire()
         vel_msg = Float64MultiArray()
 
-        if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT/4:
+        # Spin 90 degrees CW to be perpendicular to the AR Tag pole
+        if abs(shared_data.cur_heading - (shared_data.start_heading - math.pi/2)) < shared_data.SPIN_TOLERANCE:
             print(f"Spinning 90 deg for {round(time()-shared_data.start_time, 3)} seconds")
             vel_msg.data = [shared_data.SPIN_SPEED, -shared_data.SPIN_SPEED]
             shared_data.auton_publisher.publish(vel_msg)
@@ -633,7 +644,10 @@ class CircleState(State):
         ]
         shared_data.auton_publisher.publish(vel_msg)
 
-        if time() - shared_data.start_time > shared_data.SPIN_TIMEOUT:
+        end_angle = shared_data.start_heading + math.pi if shared_data.start_heading < 0 \
+                    else shared_data.start_heading - math.pi
+        # Circle 270 degrees to get around the AR Tag pole
+        if abs(shared_data.cur_heading - end_angle) < shared_data.SPIN_TOLERANCE:
             shared_data.found_ar_flag = False
             shared_data.mutex.release()
             return state_instance.goal_state
