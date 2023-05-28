@@ -12,7 +12,7 @@ import math
 from collections import deque
 import numpy as np
 from threading import Lock
-from time import time
+from time import time, sleep
 
 from gps_to_ned import GPS_2_NED
 from pure_pursuit.pp import PurePursuit
@@ -25,14 +25,17 @@ class SharedData():
     TOLERANCE = 2
     HIST_POSE_LEN = 100
     AUTON_SPEED = 1.5
+    AR_DRIVE_SPEED = 1.0
     MAX_AUTON_SPEED = 3
     SPIN_SPEED = 1.0
     STEERING_CONST = 5
     DRIVE_TIMEOUT = 30
+    SPIRAL_RADIUS = 20
+    SPIRAL_COILS = 4
     AR_TIMEOUT = 20
-    AR_TOLERANCE = 0.002 # size of ar tag we want to see before we stop
+    AR_TOLERANCE = 0.075 # size of ar tag we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
-    SPIN_TOLERANCE = 5.0 * math.pi / 180.0 # Tolerance for checking if cur angle is within desired angle
+    SPIN_TOLERANCE = math.pi / 180.0 # Tolerance for checking if cur angle is within desired angle
     BACKUP_TIMEOUT = 2
     AUTON_TOPIC_NAME     = "/autonomous_drive_train/velocity"
     GPS_TOPIC_NAME       = "/mavros/global_position/global"
@@ -63,8 +66,9 @@ class SharedData():
 
     should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints  
     found_ar_flag      = False  # if ar tag has been detected, can go to ar tag state
-    do_gate_task       = True  # if two tags detected, then do gate task
+    do_gate_task       = False  # if two tags detected, then do gate task
     do_circle_task     = False  # if one tag detected, then do circle task
+    latest_ar_found    = 0   # time stamp for latest ar tag found
 
     ar_cX              = 0      # central x position of detected ar tag
     ar_cY              = 0      # central y position of detected ar tag
@@ -166,15 +170,17 @@ def found_ar_tag(msg):
     # Use shared_data (create new variables?)
     shared_data.mutex.acquire()
 
-    if shared_data.target_id == msg.data[3]:
+    if shared_data.target_id == msg.data[-1]:
         [shared_data.ar_cX, shared_data.ar_cY,
          shared_data.ar_size, shared_data.ar_id] = msg.data
         shared_data.found_ar_flag = True
+        shared_data.latest_ar_found = time()
 
-    if shared_data.target_id2 == msg.data[3]:
+    if shared_data.target_id2 == msg.data[-1] and shared_data.do_gate_task:
         [shared_data.ar_cX2, shared_data.ar_cY2,
          shared_data.ar_size2, shared_data.ar_id2] = msg.data
         shared_data.found_ar_flag = True
+        shared_data.latest_ar_found = time()
 
     shared_data.mutex.release()
 
@@ -182,10 +188,12 @@ def clamp(num, minNum, maxNum):
     return max(min(num, maxNum), minNum)
 
 
-def reset_data():
+def reset_ar_data():
+    shared_data.mutex.acquire()
+
     shared_data.should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints  
     shared_data.found_ar_flag      = False  # if ar tag has been detected, can go to ar tag state
-    shared_data.do_gate_task       = True  # if two tags detected, then do gate task
+    shared_data.do_gate_task       = False  # if two tags detected, then do gate task
     shared_data.do_circle_task     = False  # if one tag detected, then do circle task
 
     shared_data.ar_cX              = 0      # central x position of detected ar tag
@@ -197,6 +205,8 @@ def reset_data():
     shared_data.ar_cY2             = 0      # central y position of detected ar tag 2
     shared_data.ar_size2           = 0      # size of ar tag 2 calculated by area
     shared_data.ar_id2             = 0      # id value of detected ar tag 2
+    
+    shared_data.mutex.release()
 
 class State():
     def __init__(self):
@@ -245,7 +255,7 @@ class NewControllerState(State):
         print("Entering newControllerState...")
         shared_data.mutex.acquire()
         # diff btw the last two waypoints
-        
+        # reset_ar_data()
         diff = np.array(shared_data.new_waypoints[-1]) - np.array(shared_data.new_waypoints[-2])
         next_orientation = math.atan2(diff[1], diff[0])  # calc the angle of the line connecting the last two waypoints
         shared_data.controller = PurePursuit(shared_data.new_waypoints, 
@@ -337,12 +347,13 @@ class GoalState(State):
         print("Entering goalState...")
 
         shared_data.mutex.acquire()
-        reset_data()
+        
+        print(shared_data.ar_cX, shared_data.found_ar_flag)
         shared_data.cur_state_publisher.publish("goal_reached")
         shared_data.mutex.release()
     def step(self) -> State:
+        reset_ar_data()
         return state_instance.goal_state    
-
 
 class RetryState(State):
     def on_enter(self):
@@ -388,11 +399,12 @@ class SpinState(State):
 class ForwardSpiralState(State):
     def on_enter(self):
         print("Entering ForwardSpiralState...")
+        # sleep(3)
         shared_data.mutex.acquire()
         shared_data.start_time = time()
         pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
-                             radius=10, coils=4, step=2, direction=1)
-        pts = pts[3:]
+                             radius=shared_data.SPIRAL_RADIUS, coils=shared_data.SPIRAL_COILS, step=2, direction=1)
+        # pts = [(0, 0), (0, 3), (-0.5, 3), (-1, -4)]
         end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
                             (pts[-1][0] - pts[-2][0]))
         shared_data.controller = PurePursuit(pts=pts, 
@@ -411,6 +423,9 @@ class ForwardSpiralState(State):
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
+
+        print(f"LEFTWHEEL{vel_msg.data[0]} \
+                RIGHTWHEEL{vel_msg.data[1]}")
         
         if shared_data.found_ar_flag:
             shared_data.mutex.release()
@@ -434,7 +449,7 @@ class BackwardSpiralState(State):
         shared_data.mutex.acquire()
         shared_data.start_time = time()
         pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
-                             radius=10, coils=4, step=2, direction=-1)
+                             radius=shared_data.SPIRAL_RADIUS, coils=shared_data.SPIRAL_COILS, step=2, direction=-1)
         pts = pts[3:]
         end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
                             (pts[-1][0] - pts[-2][0]))
@@ -493,13 +508,10 @@ class GoToARState(State):
         off_center = shared_data.ar_cX - 0.5
         print(off_center)
         vel_msg.data = [
-            shared_data.AUTON_SPEED + off_center * shared_data.STEERING_CONST * 3,
-            shared_data.AUTON_SPEED - off_center * shared_data.STEERING_CONST * 3,
+            shared_data.AR_DRIVE_SPEED + off_center * 3,
+            shared_data.AR_DRIVE_SPEED - off_center * 3,
         ]
 
-
-        for i in range(len(vel_msg.data)):
-            vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
 
         #print(f"LEFT WHEEL: {vel_msg.data[0]} \
@@ -700,6 +712,10 @@ def run_machine():
         else:
             last_state = cur_state
             cur_state = cur_state.step()
+
+        # print(time(), shared_data.latest_ar_found)
+        # if time() - shared_data.latest_ar_found > 2:
+        # shared_data.found_ar_flag = False
 
 if __name__ == "__main__":
     rospy.init_node("purepursuit")
