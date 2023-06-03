@@ -150,7 +150,7 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
   
     shared_data.go_home_position = shared_data.cur_position  # remember where to go back to
     shared_data.should_look_for_ar = gps_waypoint_list.data[-3]
- #   shared_data.do_gate_task = gps_waypoint_list[-2] != 0
+    shared_data.do_gate_task = gps_waypoint_list[-1]
     shared_data.target_id = gps_waypoint_list.data[-2]
  #   shared_data.target_id2 = gps_waypoint_list.data[-2]
 
@@ -175,12 +175,6 @@ def found_ar_tag(msg):
     if shared_data.target_id == msg.data[-1]:
         [shared_data.ar_cX, shared_data.ar_cY,
          shared_data.ar_size, shared_data.ar_id] = msg.data
-        shared_data.found_ar_flag = True
-        shared_data.latest_ar_found = time()
-
-    if shared_data.target_id2 == msg.data[-1] and shared_data.do_gate_task:
-        [shared_data.ar_cX2, shared_data.ar_cY2,
-         shared_data.ar_size2, shared_data.ar_id2] = msg.data
         shared_data.found_ar_flag = True
         shared_data.latest_ar_found = time()
 
@@ -364,6 +358,7 @@ class RetryState(State):
         shared_data.mutex.acquire()
         shared_data.new_waypoints = [shared_data.go_home_position]
         shared_data.new_waypoints.insert(0, shared_data.cur_position)
+        shared_data.should_look_for_ar = False
 
         shared_data.mutex.release()
         return state_instance.new_controller_state
@@ -530,14 +525,10 @@ class GoToARState(State):
             vel_msg.data = [0, 0]
             shared_data.auton_publisher.publish(vel_msg)
             shared_data.found_ar_flag = False
-            if shared_data.do_circle_task:
-                shared_data.do_circle_task = False
+            if shared_data.do_gate_task:
+                shared_data.do_gate_task = False
                 shared_data.mutex.release()
                 return state_instance.circle_state
-
-            if shared_data.do_gate_task:
-                shared_data.mutex.release()
-                return state_instance.align_state
 
             shared_data.mutex.release()
             return state_instance.goal_state
@@ -666,9 +657,13 @@ class CircleState(State):
 
         print(f"Spinning 270 deg for {round(time()-shared_data.start_time, 3)} seconds")
 
+        # vel_msg.data = [
+        #     shared_data.MAX_AUTON_SPEED/2 - shared_data.SPIN_SPEED/2,
+        #     shared_data.MAX_AUTON_SPEED/2 + shared_data.SPIN_SPEED/2,
+        # ]
         vel_msg.data = [
-            shared_data.MAX_AUTON_SPEED/2 - shared_data.SPIN_SPEED/2,
-            shared_data.MAX_AUTON_SPEED/2 + shared_data.SPIN_SPEED/2,
+            1.2,
+            2,
         ]
         shared_data.auton_publisher.publish(vel_msg)
 
