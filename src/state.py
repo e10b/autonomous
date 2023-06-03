@@ -28,12 +28,14 @@ class SharedData():
     AR_DRIVE_SPEED = 1.0
     MAX_AUTON_SPEED = 3
     SPIN_SPEED = 1.0
-    STEERING_CONST = 5
+    STEERING_CONST = 4.5
     DRIVE_TIMEOUT = 30
     SPIRAL_RADIUS = 20
     SPIRAL_COILS = 4
     AR_TIMEOUT = 20
-    AR_TOLERANCE = 0.075 # size of ar tag we want to see before we stop
+    # SPIRAL_TIMEOUT = 300
+    SPIRAL_TIMEOUT = 30
+    AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 180.0 # Tolerance for checking if cur angle is within desired angle
     BACKUP_TIMEOUT = 2
@@ -435,7 +437,9 @@ class ForwardSpiralState(State):
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
-        if time() - shared_data.start_time > shared_data.AR_TIMEOUT:  # done with spinning
+        if time() - shared_data.start_time > shared_data.SPIRAL_TIMEOUT:  # done with spiraling
+        # if shared_data.controller.did_reach_goal() or \
+        #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
@@ -485,9 +489,11 @@ class BackwardSpiralState(State):
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
-        if time() - shared_data.start_time > shared_data.AR_TIMEOUT:  # done with spinning
+        if time() - shared_data.start_time > shared_data.SPIRAL_TIMEOUT:  # done with spiraling
+        # if shared_data.controller.did_reach_goal() or \
+        #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
             shared_data.mutex.release()
-            return state_instance.backward_spiral_state
+            return state_instance.retry_state
 
         shared_data.mutex.release()
         return state_instance.backward_spiral_state
@@ -506,10 +512,10 @@ class GoToARState(State):
         vel_msg = Float64MultiArray()
 
         off_center = shared_data.ar_cX - 0.5
-        print(off_center)
+        print(off_center, shared_data.ar_size)
         vel_msg.data = [
-            shared_data.AR_DRIVE_SPEED + off_center * 3,
-            shared_data.AR_DRIVE_SPEED - off_center * 3,
+            shared_data.AR_DRIVE_SPEED + off_center * 1.5,
+            shared_data.AR_DRIVE_SPEED - off_center * 1.5,
         ]
 
         shared_data.auton_publisher.publish(vel_msg)
@@ -519,6 +525,7 @@ class GoToARState(State):
 
         # if the AR tag is big enough in frame, must be close enough
 
+        # if abs(shared_data.ar_size) > shared_data.AR_TOLERANCE and False:
         if abs(shared_data.ar_size) > shared_data.AR_TOLERANCE:
             vel_msg.data = [0, 0]
             shared_data.auton_publisher.publish(vel_msg)
@@ -714,8 +721,8 @@ def run_machine():
             cur_state = cur_state.step()
 
         # print(time(), shared_data.latest_ar_found)
-        # if time() - shared_data.latest_ar_found > 2:
-        # shared_data.found_ar_flag = False
+        if time() - shared_data.latest_ar_found > 2:
+            shared_data.found_ar_flag = False
 
 if __name__ == "__main__":
     rospy.init_node("purepursuit")
