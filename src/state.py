@@ -33,11 +33,10 @@ class SharedData():
     SPIRAL_RADIUS = 20
     SPIRAL_COILS = 4
     AR_TIMEOUT = 20
-    # SPIRAL_TIMEOUT = 300
-    SPIRAL_TIMEOUT = 30
+    SPIRAL_TIMEOUT = 300
     AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
-    SPIN_TOLERANCE = math.pi / 180.0 # Tolerance for checking if cur angle is within desired angle
+    SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
     BACKUP_TIMEOUT = 2
     AUTON_TOPIC_NAME     = "/autonomous_drive_train/velocity"
     GPS_TOPIC_NAME       = "/mavros/global_position/global"
@@ -150,7 +149,7 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
   
     shared_data.go_home_position = shared_data.cur_position  # remember where to go back to
     shared_data.should_look_for_ar = gps_waypoint_list.data[-3]
-    shared_data.do_gate_task = gps_waypoint_list[-1]
+    shared_data.do_gate_task = gps_waypoint_list.data[-1]
     shared_data.target_id = gps_waypoint_list.data[-2]
  #   shared_data.target_id2 = gps_waypoint_list.data[-2]
 
@@ -643,18 +642,21 @@ class CircleState(State):
         shared_data.start_time = time()
         shared_data.start_heading = shared_data.cur_heading
         shared_data.mutex.release()
+
+        self.done_perp = False
     def step(self) -> State:
         shared_data.mutex.acquire()
         vel_msg = Float64MultiArray()
 
         # Spin 90 degrees CW to be perpendicular to the AR Tag pole
-        if abs(shared_data.cur_heading - (shared_data.start_heading - math.pi/2)) < shared_data.SPIN_TOLERANCE:
-            print(f"Spinning 90 deg for {round(time()-shared_data.start_time, 3)} seconds")
+        if not self.done_perp and abs(shared_data.cur_heading - (shared_data.start_heading - math.pi/2)) > shared_data.SPIN_TOLERANCE:
+            print(f"Spinning 90 deg for {round(time()-shared_data.start_time, 3)} seconds { abs(shared_data.cur_heading - (shared_data.start_heading - math.pi/2))}")
             vel_msg.data = [shared_data.SPIN_SPEED, -shared_data.SPIN_SPEED]
             shared_data.auton_publisher.publish(vel_msg)
             shared_data.mutex.release()
             return state_instance.circle_state
-
+        else:
+            self.done_perp = True
         print(f"Spinning 270 deg for {round(time()-shared_data.start_time, 3)} seconds")
 
         # vel_msg.data = [
@@ -662,13 +664,13 @@ class CircleState(State):
         #     shared_data.MAX_AUTON_SPEED/2 + shared_data.SPIN_SPEED/2,
         # ]
         vel_msg.data = [
-            1.2,
+            0.5,
             2,
         ]
         shared_data.auton_publisher.publish(vel_msg)
 
-        end_angle = shared_data.start_heading + math.pi if shared_data.start_heading < 0 \
-                    else shared_data.start_heading - math.pi
+        end_angle = shared_data.start_heading + 2/3 * math.pi if shared_data.start_heading < 0 \
+                    else shared_data.start_heading - 2/3 * math.pi
         # Circle 270 degrees to get around the AR Tag pole
         if abs(shared_data.cur_heading - end_angle) < shared_data.SPIN_TOLERANCE:
             shared_data.found_ar_flag = False
