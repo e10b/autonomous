@@ -426,7 +426,7 @@ class ObstacleRecoveryState(State):
         new_unreached_pts = []
         # remove points we "passed"
         for i, u_pt in enumerate(shared_data.controller.unreached_pts):
-            if np.dot(u_pt-shared_data.cur_position, u_pt-init_pt):
+            if np.dot(u_pt-shared_data.cur_position, u_pt-init_pt) < 0:
                 init_pt = u_pt
                 continue
             else:
