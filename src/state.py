@@ -65,7 +65,7 @@ class SharedData():
     new_waypoints_flag = False  # used as a synchronization flag
     new_waypoints      = []     # all waypoints we need to hit to get to the target
 
-    should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints  
+    should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints
     found_ar_flag      = False  # if ar tag has been detected, can go to ar tag state
     do_gate_task       = False  # if two tags detected, then do gate task
     do_circle_task     = False  # if one tag detected, then do circle task
