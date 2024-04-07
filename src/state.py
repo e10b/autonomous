@@ -26,6 +26,7 @@ class SharedData():
     HIST_POSE_LEN = 100
     AUTON_SPEED = 1.5
     AR_DRIVE_SPEED = 1.0
+    OBJ_DRIVE_SPEED = 1.0
     MAX_AUTON_SPEED = 3
     SPIN_SPEED = 1.0
     STEERING_CONST = 4.5
@@ -35,6 +36,7 @@ class SharedData():
     AR_TIMEOUT = 20
     SPIRAL_TIMEOUT = 300
     AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
+    OBJ_TOLERANCE = 0.04 # size of object we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
     BACKUP_TIMEOUT = 2
@@ -44,6 +46,7 @@ class SharedData():
     COMPASS_TOPIC_NAME   = "/mavros/global_position/compass_hdg"
     WAYPOINTS_TOPIC_NAME = "/rover_waypoint"
     ARTAG_TOPIC_NAME     = "/artag_position"
+    OBJECT_TOPIC_NAME    = "/object_position"
     CUR_STATE_TOPIC_NAME = "/set_state"
 
     ################ One mutex to rule all the following vars ################
@@ -65,11 +68,19 @@ class SharedData():
     new_waypoints_flag = False  # used as a synchronization flag
     new_waypoints      = []     # all waypoints we need to hit to get to the target
 
-    should_look_for_ar = False  # all should_look_for_ar values to synchronize with new_waypoints
-    found_ar_flag      = False  # if ar tag has been detected, can go to ar tag state
-    do_gate_task       = False  # if two tags detected, then do gate task
-    do_circle_task     = False  # if one tag detected, then do circle task
-    latest_ar_found    = 0   # time stamp for latest ar tag found
+    should_look_for_obj = False  # ___ ADD INFO ___
+    should_look_for_ar  = False  # all should_look_for_ar values to synchronize with new_waypoints
+    found_ar_flag       = False  # if ar tag has been detected, can go to ar tag state
+    found_obj_flag   = False  # if object has been detect, can go to object state
+    do_gate_task        = False  # if two tags detected, then do gate task
+    do_circle_task      = False  # if one tag detected, then do circle task
+    latest_ar_found     = 0      # time stamp for latest ar tag found
+    latest_obj_found    = 0      # time stamp for latest object found
+
+    obj_cX             = 0      # central x position of detected object
+    obj_cY             = 0      # central y position of detected object
+    obj_size           = 0      # size of object calculated by area
+    obj_id             = 0      # id value of object to distinguish mallet and bottle
 
     ar_cX              = 0      # central x position of detected ar tag
     ar_cY              = 0      # central y position of detected ar tag
@@ -82,14 +93,15 @@ class SharedData():
     ar_id2             = 0      # id value of detected ar tag 2
 
     target_id          = 0      # id value of desired ar tag
-    target_id2         = 1.0      # id value of desired ar tag 2 for gate task
+    target_id2         = 1.0    # id value of desired ar tag 2 for gate task
+
+    target_obj_id      = 0      # id value of desired object 0 = mallet 1 = bottle
 
     controller    = None  # pure pursuit controller
     start_time    = None  # time stamp of when a state was first entered
     start_heading = None  # heading stamp to mark when we end spinning
 
 shared_data = SharedData()  # the global state object
-
 
 def on_new_gps_msg(msg):
     shared_data.mutex.acquire()
@@ -151,6 +163,7 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
     shared_data.should_look_for_ar = gps_waypoint_list.data[-3]
     shared_data.do_gate_task = gps_waypoint_list.data[-1]
     shared_data.target_id = gps_waypoint_list.data[-2]
+    shared_data.target_obj_id = gps_waypoint_list.data[-1]  # need to make sure this lines up with correct indexing, ADD
  #   shared_data.target_id2 = gps_waypoint_list.data[-2]
 
     shared_data.new_waypoints = [shared_data.cur_position]  # put the current position into the waypoints too
@@ -176,6 +189,17 @@ def found_ar_tag(msg):
          shared_data.ar_size, shared_data.ar_id] = msg.data
         shared_data.found_ar_flag = True
         shared_data.latest_ar_found = time()
+
+    shared_data.mutex.release()
+
+def found_object(msg):
+    shared_data.mutex.acquire()
+
+    if shared_data.target_obj_id == msg.data[-1]:
+        [shared_data.obj_cX, shared_data.obj_cY,
+         shared_data.obj_size, shared_data.obj_id] = msg.data
+        shared_data.found_obj_flag = True
+        shared_data.latest_obj_found = time()
 
     shared_data.mutex.release()
 
@@ -224,6 +248,7 @@ class StateInstance():
     forward_spiral_state    = None
     backward_spiral_state   = None
     go_to_ar_state          = None
+    go_to_obj_state      = None
     align_state             = None
     charge_forward_state    = None
     circle_state            = None
@@ -240,6 +265,8 @@ class StartState(State):
         rospy.Subscriber(shared_data.WAYPOINTS_TOPIC_NAME, Float64MultiArray, on_receive_new_gps_waypoint)
         rospy.Subscriber(shared_data.VELOCITY_TOPIC_NAME, TwistStamped, on_new_velocity_msg)
         rospy.Subscriber(shared_data.ARTAG_TOPIC_NAME, Float64MultiArray, found_ar_tag)
+        rospy.Subscriber(shared_data.OBJECT_TOPIC_NAME, Float64MultiArray, found_object)
+
 
     def step(self):
         return state_instance.start_state
@@ -299,6 +326,10 @@ class DriveState(State):
         if shared_data.controller.did_reach_goal():
             shared_data.mutex.release()
             return state_instance.validating_state
+        if shared_data.should_look_for_obj and shared_data.found_obj_flag:
+            shared_data.mutex.release()
+            return state_instance.go_to_obj_state
+        
         shared_data.mutex.release()
         return state_instance.drive_state
 
@@ -342,13 +373,17 @@ class GoalState(State):
         print("Entering goalState...")
 
         shared_data.mutex.acquire()
-        
-        print(shared_data.ar_cX, shared_data.found_ar_flag)
+
+        if shared_data.found_ar_flag:
+            print(shared_data.ar_cX, shared_data.found_ar_flag)
+        elif shared_data.found_obj:
+            print(shared_data.obj_cX, shared_data.found_obj_flag)
+
         shared_data.cur_state_publisher.publish("goal_reached")
         shared_data.mutex.release()
     def step(self) -> State:
         reset_ar_data()
-        return state_instance.goal_state    
+        return state_instance.goal_state
 
 class RetryState(State):
     def on_enter(self):
@@ -387,7 +422,7 @@ class SpinState(State):
            abs(shared_data.cur_heading - shared_data.start_heading) < shared_data.SPIN_TOLERANCE:  # done with spinning
             shared_data.mutex.release()
             return state_instance.forward_spiral_state
-        
+
         shared_data.mutex.release()
         return state_instance.spin_state
 
@@ -508,8 +543,8 @@ class GoToARState(State):
         off_center = shared_data.ar_cX - 0.5
         print(off_center, shared_data.ar_size)
         vel_msg.data = [
-            shared_data.AR_DRIVE_SPEED + off_center * 1.5,
-            shared_data.AR_DRIVE_SPEED - off_center * 1.5,
+            shared_data.OBJ_DRIVE_SPEED + off_center * 1.5,
+            shared_data.OBJ_DRIVE_SPEED - off_center * 1.5,
         ]
 
         shared_data.auton_publisher.publish(vel_msg)
@@ -539,6 +574,43 @@ class GoToARState(State):
         shared_data.mutex.release()
         return state_instance.go_to_ar_state
 
+class GoToObjectState(State):
+    def on_enter(self):
+        print("Entering goToObjectState...")
+        shared_data.mutex.acquire()
+        shared_data.start_time = time()
+        shared_data.mutex.release()
+
+    def step(self) -> State:
+        shared_data.mutex.acquire()
+
+        off_center = shared_data.obj_cX - 0.5
+        print(off_center, shared_data.obj_size)
+        vel_msg.data = [
+            shared_data.AR_DRIVE_SPEED + off_center * 1.5,
+            shared_data.AR_DRIVE_SPEED - off_center * 1.5,
+        ]
+
+        steering_adjustment = off_center * shared_data.STEERING_CONST
+        vel_msg = Float64MultiArray()
+        vel_msg.data = [
+            shared_data.AUTON_SPEED - steering_adjustment,
+            shared_data.AUTON_SPEED + steering_adjustment
+        ]
+
+        # Publish velocity commands
+        shared_data.auton_publisher.publish(vel_msg)  # check if we need different publisher here, ADD
+
+        # Decide if the object is close enough to stop
+        if shared_data.obj_size > shared_data.OBJ_TOLERANCE:
+            vel_msg.data = [0, 0]  # Stop
+            shared_data.auton_publisher.publish(vel_msg)
+            shared_data.found_obj_flag = False  # Reset flag
+            shared_data.mutex.release()
+            return state_instance.goal_state  # Transition to goal state
+
+        shared_data.mutex.release()
+        return state_instance.go_to_obj_state
 
 class AlignState(State):
     def on_enter(self):
@@ -694,6 +766,7 @@ def run_machine():
     state_instance.forward_spiral_state  = ForwardSpiralState()
     state_instance.backward_spiral_state = BackwardSpiralState()
     state_instance.go_to_ar_state        = GoToARState()
+    state_instance.go_to_obj_state       = GoToObjectState()
     state_instance.align_state           = AlignState()
     state_instance.charge_forward_state  = ChargeForwardState()
     state_instance.circle_state          = CircleState()
