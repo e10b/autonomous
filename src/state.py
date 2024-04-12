@@ -248,7 +248,7 @@ class StateInstance():
     forward_spiral_state    = None
     backward_spiral_state   = None
     go_to_ar_state          = None
-    go_to_obj_state      = None
+    go_to_obj_state         = None
     align_state             = None
     charge_forward_state    = None
     circle_state            = None
@@ -414,9 +414,13 @@ class SpinState(State):
         vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
         shared_data.auton_publisher.publish(vel_msg)
 
-        if shared_data.found_ar_flag:
+        if shared_data.found_ar_flag and shared_data.should_look_for_ar:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
+
+        if shared_data.found_obj_flag and shared_data.should_look_for_obj:
+            shared_data.mutex.release()
+            retyrn state_instance.go_to_obj_state
 
         if time() - shared_data.start_time > 1 and \
            abs(shared_data.cur_heading - shared_data.start_heading) < shared_data.SPIN_TOLERANCE:  # done with spinning
@@ -458,9 +462,13 @@ class ForwardSpiralState(State):
         print(f"LEFTWHEEL{vel_msg.data[0]} \
                 RIGHTWHEEL{vel_msg.data[1]}")
         
-        if shared_data.found_ar_flag:
+        if shared_data.found_ar_flag and shared_data.should_look_for_ar:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
+
+        if shared_data.found_obj_flag and shared_data.should_look_for_obj:
+            shared_data.mutex.release()
+            return state_instance.go_to_obj_state
 
         if shared_data.controller.did_reach_goal():
             shared_data.mutex.release()
@@ -510,9 +518,13 @@ class BackwardSpiralState(State):
         #      "RIGHT WHEEL", round(vel_msg.data[1], 3),
         # )
 
-        if shared_data.found_ar_flag:
+        if shared_data.found_ar_flag and shared_data.should_look_for_ar:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
+        
+        if shared_data.found_obj_flag and shared_data.should_look_for_obj:
+            shared_data.mutex.release()
+            return state_instance.go_to_obj_state
 
         if shared_data.controller.did_reach_goal():
             shared_data.mutex.release()
