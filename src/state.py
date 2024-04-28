@@ -28,7 +28,7 @@ class SharedData():
     AUTON_SPEED = 50
     MAX_AUTON_SPEED = 120
     SPIN_SPEED = 50
-    STEERING_CONST = 50
+    STEERING_CONST = 60
     DRIVE_TIMEOUT = 30
     SPIN_TIMEOUT = 15
     AR_TIMEOUT = 30
@@ -55,7 +55,7 @@ class SharedData():
     ################ global variables ################
     cur_position = None  # current position in x and y converted from gps intput
     cur_heading = None  # current orientation in radians counter clockwise
-    cur_speed = 0     # we'll get this from 'global_position/gp_vel'
+    cur_speed = 0     # we'll get this from 'global_position/gp_vel', NOT SAME UNITS AS AUTON SPEED
     # store the backup position to go to if we fail to reach the target
     go_home_position = None
     # [(x, y)] used to check if we are actually near the target
@@ -106,6 +106,9 @@ def on_new_gps_msg(msg):
     if shared_data.gps_converter is not None:
         shared_data.cur_position = shared_data.gps_converter.gps_to_xy(
             msg.latitude, msg.longitude)  # convert to xy
+        # print("shared data print: ", msg.latitude, msg.longitude)
+        with open("debug.txt", 'a') as f:
+            f.write(f"{shared_data.cur_position[0]}, {shared_data.cur_position[1]}, {shared_data.cur_heading}\n")
         # print("appending to current position")
         # print(msg)
         # print(shared_data.cur_position)
@@ -173,14 +176,17 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
     shared_data.new_waypoints = [shared_data.cur_position]
     for i in range(len(gps_waypoint_list.data) // 5):
         lat, lon = gps_waypoint_list.data[i*5], gps_waypoint_list.data[i*5+1]
+        print(lat, lon)
         shared_data.new_waypoints.append(
             shared_data.gps_converter.gps_to_xy(lat, lon))
     # for i in range(0, len(gps_waypoint_list.data)):
     #     if i % 5 == 0:
     #         shared_data.new_waypoints.append(shared_data.gps_converter.gps_to_xy(gps_waypoint_list.data[i], gps_waypoint_list.data[i+1]))
-    print(shared_data.new_waypoints)
+    print("new waypoints: ", shared_data.new_waypoints)
 
     shared_data.new_waypoints_flag = True
+    shared_data.obstacle_avoidance_running = False
+    shared_data.new_obstacle_avoidance_waypoints_flag = False
 
     shared_data.mutex.release()
 
@@ -225,14 +231,18 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints):
         pos = shared_data.cur_position
         if pos is None:
             print("pos is none")
-        waypoint_list.insert(0, pos)
+        # waypoint_list.insert(0, pos)
         heading = shared_data.cur_heading
         print("waypoint list")
         print(waypoint_list)
         abs_waypoint_list = [rotate_and_translate_2d(
             *pt, *pos, heading) for pt in waypoint_list]
+        print("cur pt", pos, "cur heading", heading)
+        print("transformed waypoints")
+        # abs_waypoint_list.insert(0,pos)
+        shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list[3::3]
+        print(shared_data.obstacle_avoidance_new_waypoints)
 
-        shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list
 
         shared_data.new_obstacle_avoidance_waypoints_flag = True
 
@@ -331,6 +341,8 @@ state_instance = StateInstance()
 class StartState(State):
     def on_enter(self):
         print("Entering startState...")
+        with open('debug.txt', 'w') as f:
+            f.write('')
         shared_data.auton_publisher = rospy.Publisher(
             shared_data.AUTON_TOPIC_NAME, Float64MultiArray, queue_size=1)
         shared_data.cur_state_publisher = rospy.Publisher(
@@ -370,6 +382,7 @@ class NewControllerState(State):
         #  tolerance=shared_data.TOLERANCE)
         # invalidate the flag so don't enter again
         shared_data.new_waypoints_flag = False
+        shared_data.obstacle_avoidance_running = False
         shared_data.mutex.release()
 
     def step(self):
@@ -388,21 +401,28 @@ class DriveState(State):
         shared_data.mutex.acquire()
         if shared_data.obstacle_avoidance_running:
             controller = shared_data.obstacle_avoidance_controller
+            # print("idx",controller.look_ahead_point_index, "next point:", controller.waypoints[controller.look_ahead_point_index])
         else:
             controller = shared_data.controller
 
         cur_pose = [shared_data.cur_position[0],
                     shared_data.cur_position[1], shared_data.cur_heading]
         steering_radius = controller.calc_steering(cur_pose)
-        steering_output = shared_data.STEERING_CONST * \
-            shared_data.cur_speed / steering_radius
         vel_msg = Float64MultiArray()
-        vel_msg.data = [shared_data.AUTON_SPEED - steering_output,
-                        shared_data.AUTON_SPEED + steering_output]
+        steering_output = shared_data.STEERING_CONST * \
+                shared_data.cur_speed / steering_radius
+        if abs(steering_radius) < 3: # for sharp turns
+            vel_msg.data = [-steering_output/abs(steering_output)*40.0,
+                            steering_output/abs(steering_output)*40.0]
+        else:
+            vel_msg.data = [shared_data.AUTON_SPEED - steering_output,
+                            shared_data.AUTON_SPEED + steering_output]
+        if shared_data.new_obstacle_avoidance_waypoints_flag:
+            vel_msg.data = [0, 0]
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(
                 vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-
+            print("heading", shared_data.cur_heading, "pos", shared_data.cur_position, "next_pt", controller.waypoints[controller.look_ahead_point_index])
         # print("publishing new auton message")
         shared_data.auton_publisher.publish(vel_msg)
         # print(
@@ -428,6 +448,7 @@ class DriveState(State):
         # # if obstacle then avoid
         if shared_data.new_obstacle_avoidance_waypoints_flag:
             shared_data.obstacle_avoidance_running = True
+            shared_data.mutex.release()
             return state_instance.new_obstacle_avoidance_controller_state
         # Failed to turn in time
         # if controller.is_outside_lookahead():
@@ -454,33 +475,53 @@ class NewObstacleAvoidanceControllerState(State):
 
         shared_data.obstacle_avoidance_controller = PurePursuit(shared_data.obstacle_avoidance_new_waypoints,
                                                                 shared_data.cur_heading,
-                                                                next_orientation)
+                                                                next_orientation,
+                                                                fineness = 0.1,
+                                                                max_look_ahead=0.5)
+        shared_data.obstacle_avoidance_controller.waypoints = np.array(shared_data.obstacle_avoidance_new_waypoints)
+        shared_data.start_time = time()
         shared_data.mutex.release()
 
     def step(self):
         # if obstacle then avoid
+        shared_data.mutex.acquire()
+        vel_msg = Float64MultiArray()
+        if time()-shared_data.start_time < 2:
+            print(time()-shared_data.start_time)
+            print("pos:", shared_data.cur_position)
+            vel_msg.data = [-shared_data.AUTON_SPEED,
+                            -shared_data.AUTON_SPEED]
+            shared_data.auton_publisher.publish(vel_msg)
+            shared_data.mutex.release()
+            return state_instance.new_obstacle_avoidance_controller_state
+        vel_msg.data = [0, 0]
+        shared_data.auton_publisher.publish(vel_msg)
+        shared_data.mutex.release()
         return state_instance.drive_state
 
 
 class ObstacleRecoveryState(State):
     def on_enter(self):
+        print("Entering ObstacleRecoveryState...")
         pass
 
     def step(self):
         new_unreached_pts = []
         # remove points we "passed"
         uni = shared_data.controller.user_next_index
-        last_reached_pt = shared_data.controller.user_pts[uni-1]
+        last_reached_pt = np.array(shared_data.controller.user_pts[uni-1])
         user_unreached_pts = shared_data.controller.user_pts[uni:]
         for i, u_pt in enumerate(user_unreached_pts):
+            u_pt = np.array(u_pt)
             # if we passed the point, mark it as reached
-            if np.dot(u_pt-shared_data.cur_position, u_pt-last_reached_pt) < 0:
+            if np.dot(u_pt-np.array(shared_data.cur_position), u_pt-last_reached_pt) < 0:
                 last_reached_pt = u_pt
                 continue
             else:
                 new_unreached_pts = user_unreached_pts[i:]
                 break
         shared_data.new_waypoints = new_unreached_pts
+        shared_data.new_waypoints.insert(0, shared_data.cur_position)
         # shared_data.new_waypoints_flag = True
         shared_data.obstacle_avoidance_running = False
         return state_instance.new_controller_state
@@ -853,6 +894,7 @@ def run_machine():
         rate.sleep()
         # if receive new position from ROS, go to new controller state
         if shared_data.new_waypoints_flag:
+            print("user sent more stuff!")
             cur_state = state_instance.new_controller_state
         if last_state != cur_state:
             last_state.on_exit()
