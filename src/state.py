@@ -68,7 +68,7 @@ class SharedData():
     new_waypoints_flag = False  # used as a synchronization flag
     new_waypoints      = []     # all waypoints we need to hit to get to the target
 
-    should_look_for_obj = False  # ___ ADD INFO ___
+    should_look_for_obj = True  # ___ ADD INFO ___
     should_look_for_ar  = False  # all should_look_for_ar values to synchronize with new_waypoints
     found_ar_flag       = False  # if ar tag has been detected, can go to ar tag state
     found_obj_flag   = False  # if object has been detect, can go to object state
@@ -371,7 +371,7 @@ class GoalState(State):
 
         if shared_data.found_ar_flag:
             print(shared_data.ar_cX, shared_data.found_ar_flag)
-        elif shared_data.found_obj:
+        elif shared_data.found_obj_flag:
             print(shared_data.obj_cX, shared_data.found_obj_flag)
 
         shared_data.cur_state_publisher.publish("goal_reached")
