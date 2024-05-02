@@ -80,7 +80,7 @@ class SharedData():
     obj_cX             = 0      # central x position of detected object
     obj_cY             = 0      # central y position of detected object
     obj_size           = 0      # size of object calculated by area
-    obj_id             = 0      # id value of object to distinguish mallet and bottle
+    obj_id             = 0.0      # id value of object to distinguish mallet and bottle
 
     ar_cX              = 0      # central x position of detected ar tag
     ar_cY              = 0      # central y position of detected ar tag
@@ -374,6 +374,7 @@ class GoalState(State):
         elif shared_data.found_obj_flag:
             print(shared_data.obj_cX, shared_data.found_obj_flag)
 
+        print("We got to the bottle cuz it was big enough on screen")
         shared_data.cur_state_publisher.publish("goal_reached")
         shared_data.mutex.release()
     def step(self) -> State:
@@ -593,6 +594,7 @@ class GoToObjectState(State):
 
         off_center = shared_data.obj_cX - 0.5
         print(off_center, shared_data.obj_size)
+        vel_msg = Float64MultiArray()
         vel_msg.data = [
             shared_data.AR_DRIVE_SPEED + off_center * 1.5,
             shared_data.AR_DRIVE_SPEED - off_center * 1.5,
