@@ -318,11 +318,6 @@ class DriveState(State):
         if shared_data.should_look_for_ar and shared_data.found_ar_flag:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
-        if shared_data.controller.is_outside_lookahead():
-            shared_data.new_waypoints = shared_data.new_waypoints[-1:]
-            shared_data.new_waypoints.insert(0, shared_data.cur_position)
-            shared_data.mutex.release()
-            return state_instance.new_controller_state
         if shared_data.controller.did_reach_goal():
             shared_data.mutex.release()
             return state_instance.validating_state
@@ -420,7 +415,7 @@ class SpinState(State):
 
         if shared_data.found_obj_flag and shared_data.should_look_for_obj:
             shared_data.mutex.release()
-            retyrn state_instance.go_to_obj_state
+            return state_instance.go_to_obj_state
 
         if time() - shared_data.start_time > 1 and \
            abs(shared_data.cur_heading - shared_data.start_heading) < shared_data.SPIN_TOLERANCE:  # done with spinning
