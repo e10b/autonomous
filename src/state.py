@@ -33,12 +33,13 @@ class SharedData():
     DRIVE_TIMEOUT = 30
     SPIRAL_RADIUS = 20
     SPIRAL_COILS = 4
-    OBJ_TIMEOUT = 20
+    OBJ_TIMEOUT = 5
     AR_TIMEOUT = 20
     OBJ_TIMEOUT = 20
     SPIRAL_TIMEOUT = 300
     AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
-    OBJ_TOLERANCE = 0.2 # size of object we want to see before we stop
+    OBJ_H_TOLERANCE = 0.15 # height of object we want to see before we stop
+    OBJ_W_TOLERANCE = 0.15 # width of object we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
     BACKUP_TIMEOUT = 2
@@ -70,7 +71,7 @@ class SharedData():
     new_waypoints_flag = False  # used as a synchronization flag
     new_waypoints      = []     # all waypoints we need to hit to get to the target
 
-    should_look_for_obj = True  # ___ ADD INFO ___
+    should_look_for_obj = True  # self explanatory
     should_look_for_ar  = False  # all should_look_for_ar values to synchronize with new_waypoints
     found_ar_flag       = False  # if ar tag has been detected, can go to ar tag state
     found_obj_flag   = False  # if object has been detect, can go to object state
@@ -81,7 +82,8 @@ class SharedData():
 
     obj_cX             = 0      # central x position of detected object
     obj_cY             = 0      # central y position of detected object
-    obj_size           = 0      # size of object calculated by area
+    obj_width           = 0      # width of object
+    obj_height          = 0      # height of object
     obj_id             = 0.0      # id value of object to distinguish mallet and bottle
 
     ar_cX              = 0      # central x position of detected ar tag
@@ -198,7 +200,7 @@ def found_object(msg):
     shared_data.mutex.acquire()
     if shared_data.target_obj_id == msg.data[-1]:
         [shared_data.obj_cX, shared_data.obj_cY,
-         shared_data.obj_size, shared_data.obj_id] = msg.data
+         shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
         shared_data.found_obj_flag = True
         shared_data.latest_obj_found = time()
     #print("msg = ", msg)
@@ -601,7 +603,7 @@ class GoToObjectState(State):
         shared_data.mutex.acquire()
 
         off_center = shared_data.obj_cX - 0.5
-        print(off_center, shared_data.obj_size)
+        print(off_center, shared_data.obj_width, shared_data.obj_height)
         vel_msg = Float64MultiArray()
         vel_msg.data = [
             shared_data.AR_DRIVE_SPEED + off_center * 1.5,
@@ -619,7 +621,7 @@ class GoToObjectState(State):
         shared_data.auton_publisher.publish(vel_msg)  # check if we need different publisher here, ADD
 
         # Decide if the object is close enough to stop
-        if shared_data.obj_size > shared_data.OBJ_TOLERANCE:
+        if shared_data.obj_width > shared_data.OBJ_W_TOLERANCE or shared_data.obj_height > shared_data.OBJ_H_TOLERANCE :
             vel_msg.data = [0, 0]  # Stop
             shared_data.auton_publisher.publish(vel_msg)
             shared_data.found_obj_flag = False  # Reset flag
