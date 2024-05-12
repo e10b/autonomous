@@ -33,10 +33,11 @@ class SharedData():
     DRIVE_TIMEOUT = 30
     SPIRAL_RADIUS = 20
     SPIRAL_COILS = 4
+    OBJ_TIMEOUT = 20
     AR_TIMEOUT = 20
     SPIRAL_TIMEOUT = 300
     AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
-    OBJ_TOLERANCE = 0.04 # size of object we want to see before we stop
+    OBJ_TOLERANCE = 0.2 # size of object we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
     BACKUP_TIMEOUT = 2
@@ -93,9 +94,9 @@ class SharedData():
     ar_id2             = 0      # id value of detected ar tag 2
 
     target_id          = 0      # id value of desired ar tag
-    target_id2         = 1.0    # id value of desired ar tag 2 for gate task
+    target_id2         = 0.0    # id value of desired ar tag 2 for gate task
 
-    target_obj_id      = 0      # id value of desired object 0 = mallet 1 = bottle
+    target_obj_id      = 1.0      # id value of desired object 1 = mallet 0 = bottle
 
     controller    = None  # pure pursuit controller
     start_time    = None  # time stamp of when a state was first entered
@@ -163,7 +164,7 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
     shared_data.should_look_for_ar = gps_waypoint_list.data[-3]
     shared_data.do_gate_task = gps_waypoint_list.data[-1]
     shared_data.target_id = gps_waypoint_list.data[-2]
-    shared_data.target_obj_id = gps_waypoint_list.data[-1]  # need to make sure this lines up with correct indexing, ADD
+    #shared_data.target_obj_id = gps_waypoint_list.data[-3]  # need to make sure this lines up with correct indexing, ADD
  #   shared_data.target_id2 = gps_waypoint_list.data[-2]
 
     shared_data.new_waypoints = [shared_data.cur_position]  # put the current position into the waypoints too
@@ -194,14 +195,15 @@ def found_ar_tag(msg):
 
 def found_object(msg):
     shared_data.mutex.acquire()
-
     if shared_data.target_obj_id == msg.data[-1]:
         [shared_data.obj_cX, shared_data.obj_cY,
          shared_data.obj_size, shared_data.obj_id] = msg.data
         shared_data.found_obj_flag = True
         shared_data.latest_obj_found = time()
-
+    #print("msg = ", msg)
+    #print("target_id = ", shared_data.target_obj_id)
     shared_data.mutex.release()
+
 
 def clamp(num, minNum, maxNum):
     return max(min(num, maxNum), minNum)
@@ -349,7 +351,11 @@ class ValidatingState(State):
             if shared_data.should_look_for_ar:
                 shared_data.mutex.release()
                 return state_instance.spin_state
-            
+           
+            if shared_data.should_look_for_obj:
+                shared_data.mutex.release()
+                return state_instance.spin_state
+
             if not shared_data.controller.did_reach_goal():
                 shared_data.new_waypoints = shared_data.new_waypoints[-1:]
                 shared_data.new_waypoints.insert(0, shared_data.cur_position)
@@ -374,7 +380,7 @@ class GoalState(State):
         elif shared_data.found_obj_flag:
             print(shared_data.obj_cX, shared_data.found_obj_flag)
 
-        print("We got to the bottle cuz it was big enough on screen")
+        #print("We got to the bottle cuz it was big enough on screen")
         shared_data.cur_state_publisher.publish("goal_reached")
         shared_data.mutex.release()
     def step(self) -> State:
@@ -455,8 +461,8 @@ class ForwardSpiralState(State):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
 
-        print(f"LEFTWHEEL{vel_msg.data[0]} \
-                RIGHTWHEEL{vel_msg.data[1]}")
+        #print(f"LEFTWHEEL{vel_msg.data[0]} \
+                #RIGHTWHEEL{vel_msg.data[1]}")
         
         if shared_data.found_ar_flag and shared_data.should_look_for_ar:
             shared_data.mutex.release()
@@ -600,12 +606,12 @@ class GoToObjectState(State):
             shared_data.AR_DRIVE_SPEED - off_center * 1.5,
         ]
 
-        steering_adjustment = off_center * shared_data.STEERING_CONST
-        vel_msg = Float64MultiArray()
-        vel_msg.data = [
-            shared_data.AUTON_SPEED - steering_adjustment,
-            shared_data.AUTON_SPEED + steering_adjustment
-        ]
+        #steering_adjustment = off_center * shared_data.STEERING_CONST
+        #vel_msg = Float64MultiArray()
+        #vel_msg.data = [
+        #    shared_data.AUTON_SPEED - steering_adjustment,
+        #    shared_data.AUTON_SPEED + steering_adjustment
+        #]
 
         # Publish velocity commands
         shared_data.auton_publisher.publish(vel_msg)  # check if we need different publisher here, ADD
@@ -617,6 +623,10 @@ class GoToObjectState(State):
             shared_data.found_obj_flag = False  # Reset flag
             shared_data.mutex.release()
             return state_instance.goal_state  # Transition to goal state
+        
+        if time() - shared_data.start_time > shared_data.OBJ_TIMEOUT:
+            shared_data.mutex.release()
+            return state_instance.spin_state
 
         shared_data.mutex.release()
         return state_instance.go_to_obj_state
@@ -696,8 +706,8 @@ class ChargeForwardState(State):
             vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
 
-        print(f"LEFT WHEEL: {vel_msg.data[0]} \
-                RIGHT WHEEL: {vel_msg.data[1]}")
+        #print(f"LEFT WHEEL: {vel_msg.data[0]} \
+        #        RIGHT WHEEL: {vel_msg.data[1]}")
 
         if shared_data.ar_size > 0.01 or\
            shared_data.ar_size2 > 0.01:
