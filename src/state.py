@@ -35,6 +35,7 @@ class SharedData():
     SPIRAL_COILS = 4
     OBJ_TIMEOUT = 20
     AR_TIMEOUT = 20
+    OBJ_TIMEOUT = 20
     SPIRAL_TIMEOUT = 300
     AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
     OBJ_TOLERANCE = 0.2 # size of object we want to see before we stop
@@ -351,11 +352,12 @@ class ValidatingState(State):
             if shared_data.should_look_for_ar:
                 shared_data.mutex.release()
                 return state_instance.spin_state
-           
+
+                
             if shared_data.should_look_for_obj:
                 shared_data.mutex.release()
                 return state_instance.spin_state
-
+            
             if not shared_data.controller.did_reach_goal():
                 shared_data.new_waypoints = shared_data.new_waypoints[-1:]
                 shared_data.new_waypoints.insert(0, shared_data.cur_position)
@@ -627,6 +629,11 @@ class GoToObjectState(State):
         if time() - shared_data.start_time > shared_data.OBJ_TIMEOUT:
             shared_data.mutex.release()
             return state_instance.spin_state
+
+        if time() - shared_data.start_time > shared_data.OBJ_TIMEOUT:
+            shared_data.mutex.release()
+            return state_instance.spin_state
+
 
         shared_data.mutex.release()
         return state_instance.go_to_obj_state
