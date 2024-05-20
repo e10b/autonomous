@@ -70,6 +70,7 @@ class SharedData():
     gps_time           = None   # timer to register time between new gps receipts
     new_waypoints_flag = False  # used as a synchronization flag
     new_waypoints      = []     # all waypoints we need to hit to get to the target
+    counter             = 0     # see how many times it sees the object
 
     should_look_for_obj = True  # self explanatory
     should_look_for_ar  = False  # all should_look_for_ar values to synchronize with new_waypoints
@@ -200,8 +201,10 @@ def found_object(msg):
     shared_data.mutex.acquire()
     if shared_data.target_obj_id == msg.data[-1]:
         [shared_data.obj_cX, shared_data.obj_cY,
-         shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
-        shared_data.found_obj_flag = True
+         shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.
+         shared_data.counter += 1
+         if shared_data.counter == 3:
+            shared_data.found_obj_flag = True
         shared_data.latest_obj_found = time()
     #print("msg = ", msg)
     #print("target_id = ", shared_data.target_obj_id)
@@ -594,6 +597,7 @@ class GoToARState(State):
 
 class GoToObjectState(State):
     def on_enter(self):
+        shared_data.counter = 0
         print("Entering goToObjectState...")
         shared_data.mutex.acquire()
         shared_data.start_time = time()
