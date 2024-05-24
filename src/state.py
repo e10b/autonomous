@@ -26,17 +26,20 @@ class SharedData():
     HIST_POSE_LEN = 100
     AUTON_SPEED = 1.5
     AR_DRIVE_SPEED = 1.0
-    OBJ_DRIVE_SPEED = 1.0
+    OBJ_DRIVE_SPEED = 0.8
     MAX_AUTON_SPEED = 3
     SPIN_SPEED = 1.0
     STEERING_CONST = 4.5
     DRIVE_TIMEOUT = 30
     SPIRAL_RADIUS = 20
+    OBJ_SPIRAL_RADIUS = 11
     SPIRAL_COILS = 4
+    OBJ_SPIRAL_COILS = 8
     OBJ_TIMEOUT = 5
     AR_TIMEOUT = 20
     OBJ_TIMEOUT = 20
     SPIRAL_TIMEOUT = 300
+    OBJ_SPIRAL_TIMEOUT = 300
     AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
     OBJ_H_TOLERANCE = 0.15 # height of object we want to see before we stop
     OBJ_W_TOLERANCE = 0.15 # width of object we want to see before we stop
@@ -446,9 +449,13 @@ class ForwardSpiralState(State):
         # sleep(3)
         shared_data.mutex.acquire()
         shared_data.start_time = time()
-        pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
-                             radius=shared_data.SPIRAL_RADIUS, coils=shared_data.SPIRAL_COILS, step=2, direction=1)
+        if shared_data.should_look_for_ar:
+            pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
+                                 radius=shared_data.SPIRAL_RADIUS, coils=shared_data.SPIRAL_COILS, step=2, direction=1)
         # pts = [(0, 0), (0, 3), (-0.5, 3), (-1, -4)]
+        if shared_data.should_look_for_obj:
+            pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
+                                 radius=shared_data.OBJ_SPIRAL_RADIUS, coils=shared_data.OBJ_SPIRAL_COILS, step=2, direction=1)
         end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
                             (pts[-1][0] - pts[-2][0]))
         shared_data.controller = PurePursuit(pts=pts, 
@@ -483,11 +490,18 @@ class ForwardSpiralState(State):
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
-        if time() - shared_data.start_time > shared_data.SPIRAL_TIMEOUT:  # done with spiraling
+        if (shared_data.should_look_for_ar && (time() - shared_data.start_time > shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
         # if shared_data.controller.did_reach_goal() or \
         #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
+
+        if (shared_data.should_look_for_obj && (time() - shared_data.start_time > shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
+        # if shared_data.controller.did_reach_goal() or \
+        #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
+            shared_data.mutex.release()
+            return state_instance.backward_spiral_state
+
 
         shared_data.mutex.release()
         return state_instance.forward_spiral_state
@@ -498,8 +512,12 @@ class BackwardSpiralState(State):
         print("Entering BackwardSpiralState...")
         shared_data.mutex.acquire()
         shared_data.start_time = time()
-        pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
-                             radius=shared_data.SPIRAL_RADIUS, coils=shared_data.SPIRAL_COILS, step=2, direction=-1)
+        if shared_data.should_look_for_ar:
+            pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
+                                 radius=shared_data.SPIRAL_RADIUS, coils=shared_data.SPIRAL_COILS, step=2, direction=-1)
+        if shared_data.should_look_for_obj:
+            pts = get_spiral(shared_data.cur_position[0], shared_data.cur_position[1], 
+                                 radius=shared_data.OBJ_SPIRAL_RADIUS, coils=shared_data.OBJ_SPIRAL_COILS, step=2, direction=-1)
         pts = pts[3:]
         end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
                             (pts[-1][0] - pts[-2][0]))
@@ -539,11 +557,18 @@ class BackwardSpiralState(State):
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
-        if time() - shared_data.start_time > shared_data.SPIRAL_TIMEOUT:  # done with spiraling
+        if (shared_data.should_look_for_ar && (time() - shared_data.start_time > shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
         # if shared_data.controller.did_reach_goal() or \
         #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
             shared_data.mutex.release()
             return state_instance.retry_state
+
+        if (shared_data.should_look_for_obj && (time() - shared_data.start_time > shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
+        # if shared_data.controller.did_reach_goal() or \
+        #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
+            shared_data.mutex.release()
+            return state_instance.retry_state
+        
 
         shared_data.mutex.release()
         return state_instance.backward_spiral_state
@@ -564,8 +589,8 @@ class GoToARState(State):
         off_center = shared_data.ar_cX - 0.5
         print(off_center, shared_data.ar_size)
         vel_msg.data = [
-            shared_data.OBJ_DRIVE_SPEED + off_center * 1.5,
-            shared_data.OBJ_DRIVE_SPEED - off_center * 1.5,
+            shared_data.AR_DRIVE_SPEED + off_center * 1.5,
+            shared_data.AR_DRIVE_SPEED - off_center * 1.5,
         ]
 
         shared_data.auton_publisher.publish(vel_msg)
@@ -610,8 +635,8 @@ class GoToObjectState(State):
         print(off_center, shared_data.obj_width, shared_data.obj_height)
         vel_msg = Float64MultiArray()
         vel_msg.data = [
-            shared_data.AR_DRIVE_SPEED + off_center * 1.5,
-            shared_data.AR_DRIVE_SPEED - off_center * 1.5,
+            shared_data.OBJ_DRIVE_SPEED + off_center * 1.5,
+            shared_data.OBJ_DRIVE_SPEED - off_center * 1.5,
         ]
 
         #steering_adjustment = off_center * shared_data.STEERING_CONST
@@ -635,11 +660,6 @@ class GoToObjectState(State):
         if time() - shared_data.start_time > shared_data.OBJ_TIMEOUT:
             shared_data.mutex.release()
             return state_instance.spin_state
-
-        if time() - shared_data.start_time > shared_data.OBJ_TIMEOUT:
-            shared_data.mutex.release()
-            return state_instance.spin_state
-
 
         shared_data.mutex.release()
         return state_instance.go_to_obj_state
