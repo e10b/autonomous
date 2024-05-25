@@ -41,8 +41,8 @@ class SharedData():
     SPIRAL_TIMEOUT = 300
     OBJ_SPIRAL_TIMEOUT = 300
     AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
-    OBJ_H_TOLERANCE = 0.15 # height of object we want to see before we stop
-    OBJ_W_TOLERANCE = 0.15 # width of object we want to see before we stop
+    OBJ_H_TOLERANCE = 0.08 # height of object we want to see before we stop
+    OBJ_W_TOLERANCE = 0.08 # width of object we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
     BACKUP_TIMEOUT = 2
@@ -75,7 +75,7 @@ class SharedData():
     new_waypoints      = []     # all waypoints we need to hit to get to the target
     counter             = 0     # see how many times it sees the object
 
-    should_look_for_obj = True  # self explanatory
+    should_look_for_obj = False  # self explanatory
     should_look_for_ar  = False  # all should_look_for_ar values to synchronize with new_waypoints
     found_ar_flag       = False  # if ar tag has been detected, can go to ar tag state
     found_obj_flag   = False  # if object has been detect, can go to object state
@@ -168,15 +168,16 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
        return
   
     shared_data.go_home_position = shared_data.cur_position  # remember where to go back to
-    shared_data.should_look_for_ar = gps_waypoint_list.data[-3]
-    shared_data.do_gate_task = gps_waypoint_list.data[-1]
-    shared_data.target_id = gps_waypoint_list.data[-2]
-    #shared_data.target_obj_id = gps_waypoint_list.data[-3]  # need to make sure this lines up with correct indexing, ADD
+    shared_data.should_look_for_ar = gps_waypoint_list.data[2]
+    #shared_data.do_gate_task = gps_waypoint_list.data[-1]
+    shared_data.target_id = gps_waypoint_list.data[3]
+    shared_data.should_look_for_obj = 0 if gps_waypoint_list.data[5] == 0 else 1
+    shared_data.target_obj_id = gps_waypoint_list.data[5] - 1  # need to make sure this lines up with correct indexing, ADD
  #   shared_data.target_id2 = gps_waypoint_list.data[-2]
-
+    size_of_waypts = len(gps_waypoint_list.data)
     shared_data.new_waypoints = [shared_data.cur_position]  # put the current position into the waypoints too
-    for i in range(len(gps_waypoint_list.data) // 5):
-        lat, lon = gps_waypoint_list.data[i*5], gps_waypoint_list.data[i*5+1]
+    for i in range(len(gps_waypoint_list.data) // size_of_waypts):
+        lat, lon = gps_waypoint_list.data[i*size_of_waypts], gps_waypoint_list.data[i*size_of_waypts+1]
         shared_data.new_waypoints.append(shared_data.gps_converter.gps_to_xy(lat, lon))
     # for i in range(0, len(gps_waypoint_list.data)):
     #     if i % 5 == 0:
@@ -202,11 +203,13 @@ def found_ar_tag(msg):
 
 def found_object(msg):
     shared_data.mutex.acquire()
+    print("seeing object id: ", msg.data[-1], " looking for ", shared_data.target_obj_id)
     if shared_data.target_obj_id == msg.data[-1]:
         [shared_data.obj_cX, shared_data.obj_cY,
-         shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.
-         shared_data.counter += 1
-         if shared_data.counter == 3:
+         shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
+        shared_data.counter += 1
+        print("found object we were looking for with id: ", msg.data[-1])
+        if shared_data.counter == 2:
             shared_data.found_obj_flag = True
         shared_data.latest_obj_found = time()
     #print("msg = ", msg)
@@ -490,13 +493,13 @@ class ForwardSpiralState(State):
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
-        if (shared_data.should_look_for_ar && (time() - shared_data.start_time > shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
+        if (shared_data.should_look_for_ar and (time() - shared_data.start_time > shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
         # if shared_data.controller.did_reach_goal() or \
         #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
-        if (shared_data.should_look_for_obj && (time() - shared_data.start_time > shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
+        if (shared_data.should_look_for_obj and (time() - shared_data.start_time > shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
         # if shared_data.controller.did_reach_goal() or \
         #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
             shared_data.mutex.release()
@@ -557,13 +560,13 @@ class BackwardSpiralState(State):
             shared_data.mutex.release()
             return state_instance.backward_spiral_state
 
-        if (shared_data.should_look_for_ar && (time() - shared_data.start_time > shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
+        if (shared_data.should_look_for_ar and (time() - shared_data.start_time > shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
         # if shared_data.controller.did_reach_goal() or \
         #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
             shared_data.mutex.release()
             return state_instance.retry_state
 
-        if (shared_data.should_look_for_obj && (time() - shared_data.start_time > shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
+        if (shared_data.should_look_for_obj and (time() - shared_data.start_time > shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
         # if shared_data.controller.did_reach_goal() or \
         #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
             shared_data.mutex.release()
