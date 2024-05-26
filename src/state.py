@@ -3,6 +3,7 @@
 """http://wiki.ros.org/mavros for topic ref"""
 
 import sys
+import functools
 import rospy
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import TwistStamped
@@ -45,6 +46,27 @@ class SharedData():
     OBJ_W_TOLERANCE = 0.08 # width of object we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
+
+    """ Alternate Variables from Brandon-Fix
+    AUTON_SPEED = 50
+    MAX_AUTON_SPEED = 120
+    SPIN_SPEED = 50
+    STEERING_CONST = 60
+    DRIVE_TIMEOUT = 30
+    SPIN_TIMEOUT = 15
+    AR_TIMEOUT = 30
+    AR_TOLERANCE = 0.062  # size of ar tag we want to see before we stop
+    # for checking if distance between two ar tags are too close
+    AR_TAGS_DIST_TOLERANCE = 0.01
+    BACKUP_TIMEOUT = 2
+    AUTON_TOPIC_NAME = "/autonomous_drive_train"
+    GPS_TOPIC_NAME = "/mavros/global_position/global"
+    VELOCITY_TOPIC_NAME = "/mavros/global_position/raw/gps_vel"
+    COMPASS_TOPIC_NAME = "/mavros/global_position/compass_hdg"
+    WAYPOINTS_TOPIC_NAME = "/rover_waypoint"
+    OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME = "/obstacle_avoidance/path"
+    ARTAG_TOPIC_NAME = "/artag_position"
+    """
     BACKUP_TIMEOUT = 2
     AUTON_TOPIC_NAME     = "/autonomous_drive_train/velocity"
     GPS_TOPIC_NAME       = "/mavros/global_position/global"
@@ -59,18 +81,20 @@ class SharedData():
     mutex = Lock()  # this is for the entire data class
 
     ################ Pub and sub section ################
-    auton_publisher     = None
+    auton_publisher = None
     cur_state_publisher = None
 
     ################ global variables ################
-    cur_position     = None  # current position in x and y converted from gps intput
-    cur_heading      = None  # current orientation in radians counter clockwise
-    cur_speed        = 0     # we'll get this from 'global_position/gp_vel'
-    go_home_position = None  # store the backup position to go to if we fail to reach the target
-    position_history = deque(maxlen=HIST_POSE_LEN)  # [(x, y)] used to check if we are actually near the target
-    
-    gps_converter      = None   # given lat and long spits out x and y
-    gps_time           = None   # timer to register time between new gps receipts
+    cur_position = None  # current position in x and y converted from gps intput
+    cur_heading = None  # current orientation in radians counter clockwise
+    cur_speed = 0     # we'll get this from 'global_position/gp_vel', NOT SAME UNITS AS AUTON SPEED
+    # store the backup position to go to if we fail to reach the target
+    go_home_position = None
+    # [(x, y)] used to check if we are actually near the target
+    position_history = deque(maxlen=HIST_POSE_LEN)
+
+    gps_converter = None   # given lat and long spits out x and y
+    gps_time = None   # timer to register time between new gps receipts
     new_waypoints_flag = False  # used as a synchronization flag
     new_waypoints      = []     # all waypoints we need to hit to get to the target
     counter             = 0     # see how many times it sees the object
@@ -90,24 +114,39 @@ class SharedData():
     obj_height          = 0      # height of object
     obj_id             = 0.0      # id value of object to distinguish mallet and bottle
 
-    ar_cX              = 0      # central x position of detected ar tag
-    ar_cY              = 0      # central y position of detected ar tag
-    ar_size            = 0      # size of ar tag calculated by area
-    ar_id              = 0      # id value of detected ar tag
+    new_obstacle_avoidance_waypoints_flag = False  # used as a synchronization flag
+    # all waypoints we need to hit to get to the target
+    obstacle_avoidance_new_waypoints = []
+    # obstacle avoidance has run and can avoid another obstacle
+    obstacle_avoidance_running = False
 
-    ar_cX2             = 0      # central x position of detected ar tag 2
-    ar_cY2             = 0      # central y position of detected ar tag 2
-    ar_size2           = 0      # size of ar tag 2 calculated by area
-    ar_id2             = 0      # id value of detected ar tag 2
+    # all should_look_for_ar values to synchronize with new_waypoints
+    should_look_for_ar = False
+    found_ar_flag = False  # if ar tag has been detected, can go to ar tag state
+    do_gate_task = True  # if two tags detected, then do gate task
+    do_circle_task = False  # if one tag detected, then do circle task
+
+    ar_cX = 0      # central x position of detected ar tag
+    ar_cY = 0      # central y position of detected ar tag
+    ar_size = 0      # size of ar tag calculated by area
+    ar_id = 0      # id value of detected ar tag
+
+    ar_cX2 = 0      # central x position of detected ar tag 2
+    ar_cY2 = 0      # central y position of detected ar tag 2
+    ar_size2 = 0      # size of ar tag 2 calculated by area
+    ar_id2 = 0      # id value of detected ar tag 2
 
     target_id          = 0      # id value of desired ar tag
     target_id2         = 0.0    # id value of desired ar tag 2 for gate task
-
+    #in brandon's version it was 1
     target_obj_id      = 1.0      # id value of desired object 1 = mallet 0 = bottle
 
     controller    = None  # pure pursuit controller
     start_time    = None  # time stamp of when a state was first entered
     start_heading = None  # heading stamp to mark when we end spinning
+    obstacle_avoidance_controller = None
+
+
 
 shared_data = SharedData()  # the global state object
 
@@ -115,11 +154,20 @@ def on_new_gps_msg(msg):
     shared_data.mutex.acquire()
 
     if shared_data.gps_converter is not None:
-        shared_data.cur_position = shared_data.gps_converter.gps_to_xy(msg.latitude, msg.longitude)  # convert to xy
-        shared_data.position_history.append(shared_data.cur_position)  # add to history
+        shared_data.cur_position = shared_data.gps_converter.gps_to_xy(
+            msg.latitude, msg.longitude)  # convert to xy
+        # print("shared data print: ", msg.latitude, msg.longitude)
+        with open("debug.txt", 'a') as f:
+            f.write(f"{shared_data.cur_position[0]}, {shared_data.cur_position[1]}, {shared_data.cur_heading}\n")
+        # print("appending to current position")
+        # print(msg)
+        # print(shared_data.cur_position)
+        shared_data.position_history.append(
+            shared_data.cur_position)  # add to history
     else:
-        shared_data.gps_converter = GPS_2_NED(msg.latitude, msg.longitude)  # initialize converter
-    
+        shared_data.gps_converter = GPS_2_NED(
+            msg.latitude, msg.longitude)  # initialize converter
+
     # if shared_data.gps_time != None and len(shared_data.position_history) > 1:
     #     elapsed = time()-shared_data.gps_time
     #     x_speed = (shared_data.cur_position[0]-shared_data.position_history[-2][0])/elapsed
@@ -141,7 +189,7 @@ def on_new_heading_msg(msg):
     if heading > 180:
         heading -= 360
     shared_data.cur_heading = heading * math.pi / 180
-    
+
     shared_data.mutex.release()
 
 
@@ -171,6 +219,7 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
     shared_data.should_look_for_ar = gps_waypoint_list.data[2]
     #shared_data.do_gate_task = gps_waypoint_list.data[-1]
     shared_data.target_id = gps_waypoint_list.data[3]
+    
     shared_data.should_look_for_obj = 0 if gps_waypoint_list.data[5] == 0 else 1
     shared_data.target_obj_id = gps_waypoint_list.data[5] - 1  # need to make sure this lines up with correct indexing, ADD
  #   shared_data.target_id2 = gps_waypoint_list.data[-2]
@@ -182,9 +231,69 @@ def on_receive_new_gps_waypoint(gps_waypoint_list):
     # for i in range(0, len(gps_waypoint_list.data)):
     #     if i % 5 == 0:
     #         shared_data.new_waypoints.append(shared_data.gps_converter.gps_to_xy(gps_waypoint_list.data[i], gps_waypoint_list.data[i+1]))
-    print(shared_data.new_waypoints)
+    print("new waypoints: ", shared_data.new_waypoints)
 
     shared_data.new_waypoints_flag = True
+    shared_data.obstacle_avoidance_running = False
+    shared_data.new_obstacle_avoidance_waypoints_flag = False
+
+    shared_data.mutex.release()
+
+
+# converts (x, y) coordinates relative to robot (e.g. (0 , 1) is directly
+# ahead of front of robot) then transforms
+# to global coordinates using position, heading of robot
+# heading in rad and is unit circle (pi / 2 is straight ahead)
+def rotate_and_translate_2d(x, y, pos_x, pos_y, heading):
+    # convert heading so that 0 is straight ahead
+    offset_heading = heading - math.pi / 2
+    # https://en.wikipedia.org/wiki/Transformation_matrix?useskin=vector#Rotation
+    x_prime = x * math.cos(offset_heading) - y * math.sin(offset_heading)
+    y_prime = x * math.sin(offset_heading) + y * math.cos(offset_heading)
+
+    x_prime_prime = x_prime + pos_x
+    y_prime_prime = y_prime + pos_y
+    return (x_prime_prime, y_prime_prime)
+
+
+# converts array to list of 2 tuples
+# eg [1, 2, 3, 4, 5, 6] -> [(1, 2), (3, 4), (5, 6)]
+def convert_arr_to_waypoint_list(arr):
+    out = []
+    it = iter(arr)
+    for x in it:
+        try:
+            out.append((x, next(it)))
+        except StopIteration:
+            raise ValueError('array has odd number of elements')
+    return out
+
+
+def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints):
+    shared_data.mutex.acquire()
+
+    # if not running read points in
+    if (not shared_data.obstacle_avoidance_running):
+        print("preparing to avoid obstacle")
+        waypoint_list = convert_arr_to_waypoint_list(
+            obstacle_avoidence_waypoints.data)
+        pos = shared_data.cur_position
+        if pos is None:
+            print("pos is none")
+        # waypoint_list.insert(0, pos)
+        heading = shared_data.cur_heading
+        print("waypoint list")
+        print(waypoint_list)
+        abs_waypoint_list = [rotate_and_translate_2d(
+            *pt, *pos, heading) for pt in waypoint_list]
+        print("cur pt", pos, "cur heading", heading)
+        print("transformed waypoints")
+        # abs_waypoint_list.insert(0,pos)
+        shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list[3::3]
+        print(shared_data.obstacle_avoidance_new_waypoints)
+
+
+        shared_data.new_obstacle_avoidance_waypoints_flag = True
 
     shared_data.mutex.release()
 
@@ -199,7 +308,25 @@ def found_ar_tag(msg):
         shared_data.found_ar_flag = True
         shared_data.latest_ar_found = time()
 
-    shared_data.mutex.release()
+    if shared_data.target_id2 == msg.data[3]:
+        [shared_data.ar_cX2, shared_data.ar_cY2,
+         shared_data.ar_size2, shared_data.ar_id2] = msg.data
+    """elif shared_data.target_id == msg.data[1][4]:
+        [shared_data.ar_cX, shared_data.ar_cY,
+         shared_data.ar_size, shared_data.ar_id] = msg.data[1]
+
+    if shared_data.target_id2 == msg.data[0][3]:
+        [shared_data.ar_cX2, shared_data.ar_cY2,
+         shared_data.ar_size2, shared_data.ar_id2] = msg.data[0]
+    elif shared_data.target_id2 == msg.data[1][4]:
+        [shared_data.ar_cX2, shared_data.ar_cY2,
+         shared_data.ar_size2, shared_data.ar_id2] = msg.data[1]"""
+
+    if shared_data.ar_id != shared_data.target_id:
+        shared_data.mutex.release()
+        return
+
+    shared_data.found_ar_flag = True
 
 def found_object(msg):
     shared_data.mutex.acquire()
@@ -229,32 +356,38 @@ def reset_ar_data():
     shared_data.do_gate_task       = False  # if two tags detected, then do gate task
     shared_data.do_circle_task     = False  # if one tag detected, then do circle task
 
-    shared_data.ar_cX              = 0      # central x position of detected ar tag
-    shared_data.ar_cY              = 0      # central y position of detected ar tag
-    shared_data.ar_size            = 0      # size of ar tag calculated by area
-    shared_data.ar_id              = 0      # id value of detected ar tag
+    shared_data.ar_cX = 0      # central x position of detected ar tag
+    shared_data.ar_cY = 0      # central y position of detected ar tag
+    shared_data.ar_size = 0      # size of ar tag calculated by area
+    shared_data.ar_id = 0      # id value of detected ar tag
 
-    shared_data.ar_cX2             = 0      # central x position of detected ar tag 2
-    shared_data.ar_cY2             = 0      # central y position of detected ar tag 2
-    shared_data.ar_size2           = 0      # size of ar tag 2 calculated by area
-    shared_data.ar_id2             = 0      # id value of detected ar tag 2
+    shared_data.ar_cX2 = 0      # central x position of detected ar tag 2
+    shared_data.ar_cY2 = 0      # central y position of detected ar tag 2
+    shared_data.ar_size2 = 0      # size of ar tag 2 calculated by area
+    shared_data.ar_id2 = 0      # id value of detected ar tag 2
     
     shared_data.mutex.release()
 
 class State():
     def __init__(self):
         pass
+
     def on_enter(self):
         pass
+
     def on_exit(self):
         pass
+
     def step(self):
         pass
+
 
 class StateInstance():
     start_state             = None
     new_controller_state    = None
+    new_obstacle_avoidance_controller_state = None
     drive_state             = None
+    obstacle_recovery_state = None
     validating_state        = None
     goal_state              = None
     retry_state             = None
@@ -269,11 +402,16 @@ class StateInstance():
 
 state_instance = StateInstance()
 
+
 class StartState(State):
     def on_enter(self):
         print("Entering startState...")
-        shared_data.auton_publisher = rospy.Publisher(shared_data.AUTON_TOPIC_NAME, Float64MultiArray, queue_size=1)
-        shared_data.cur_state_publisher = rospy.Publisher(shared_data.CUR_STATE_TOPIC_NAME, String, queue_size=1)
+        with open('debug.txt', 'w') as f:
+            f.write('')
+        shared_data.auton_publisher = rospy.Publisher(
+            shared_data.AUTON_TOPIC_NAME, Float64MultiArray, queue_size=1)
+        shared_data.cur_state_publisher = rospy.Publisher(
+            shared_data.CUR_STATE_TOPIC_NAME, String, queue_size=1)
         rospy.Subscriber(shared_data.GPS_TOPIC_NAME, NavSatFix, on_new_gps_msg)
         rospy.Subscriber(shared_data.COMPASS_TOPIC_NAME, Float64, on_new_heading_msg)
         rospy.Subscriber(shared_data.WAYPOINTS_TOPIC_NAME, Float64MultiArray, on_receive_new_gps_waypoint)
@@ -299,8 +437,14 @@ class NewControllerState(State):
                                              next_orientation,
                                              tolerance=shared_data.TOLERANCE)
         shared_data.new_waypoints_flag = False  # invalidate the flag so don't enter again
+        shared_data.obstacle_avoidance_running = False
+
         shared_data.mutex.release()
+
     def step(self):
+        # # if obstacle then avoid
+        # if shared_data.new_obstacle_avoidance_waypoints_flag:
+        #     return state_instance.new_obstacle_avoidance_controller_state
         return state_instance.drive_state
 
 
@@ -311,14 +455,32 @@ class DriveState(State):
 
     def step(self):
         shared_data.mutex.acquire()
-        cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
-        steering_radius = shared_data.controller.calc_steering(cur_pose)
-        steering_output = shared_data.STEERING_CONST * shared_data.AUTON_SPEED / steering_radius / 2
+        if shared_data.obstacle_avoidance_running:
+            controller = shared_data.obstacle_avoidance_controller
+            # print("idx",controller.look_ahead_point_index, "next point:", controller.waypoints[controller.look_ahead_point_index])
+        else:
+            controller = shared_data.controller
+
+        cur_pose = [shared_data.cur_position[0],
+                    shared_data.cur_position[1], shared_data.cur_heading]
+        steering_radius = controller.calc_steering(cur_pose)
+        #steering_output = shared_data.STEERING_CONST * shared_data.AUTON_SPEED / steering_radius / 2
         vel_msg = Float64MultiArray()
-        vel_msg.data = [shared_data.AUTON_SPEED - steering_output, 
-                        shared_data.AUTON_SPEED + steering_output]
+        steering_output = shared_data.STEERING_CONST * \
+                shared_data.cur_speed / steering_radius
+        if abs(steering_radius) < 3: # for sharp turns
+            vel_msg.data = [-steering_output/abs(steering_output)*40.0,
+                            steering_output/abs(steering_output)*40.0]
+        else:
+            vel_msg.data = [shared_data.AUTON_SPEED - steering_output,
+                            shared_data.AUTON_SPEED + steering_output]
+        if shared_data.new_obstacle_avoidance_waypoints_flag:
+            vel_msg.data = [0, 0]
         for i in range(len(vel_msg.data)):
-            vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+            vel_msg.data[i] = clamp(
+                vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+            print("heading", shared_data.cur_heading, "pos", shared_data.cur_position, "next_pt", controller.waypoints[controller.look_ahead_point_index])
+        # print("publishing new auton message")
         shared_data.auton_publisher.publish(vel_msg)
         # print(
         #      "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
@@ -328,19 +490,101 @@ class DriveState(State):
         #      "CUR_SPEED", round(shared_data.cur_speed, 3),
         # )
 
-        # Failed to turn in time
-        if shared_data.should_look_for_ar and shared_data.found_ar_flag:
-            shared_data.mutex.release()
-            return state_instance.go_to_ar_state
-        if shared_data.controller.did_reach_goal():
+        if controller.did_reach_goal():
+            if shared_data.obstacle_avoidance_running:
+                shared_data.mutex.release()
+                return state_instance.obstacle_recovery_state
             shared_data.mutex.release()
             return state_instance.validating_state
+        if shared_data.should_look_for_ar and shared_data.found_ar_flag:
+            # reset obstacle avoidance flags
+            shared_data.obstacle_avoidance_running = False
+            shared_data.new_obstacle_avoidance_waypoints_flag = False
+            shared_data.mutex.release()
+            return state_instance.go_to_ar_state
+        # # if obstacle then avoid
+        if shared_data.new_obstacle_avoidance_waypoints_flag:
+            shared_data.obstacle_avoidance_running = True
+            shared_data.mutex.release()
+            return state_instance.new_obstacle_avoidance_controller_state
         if shared_data.should_look_for_obj and shared_data.found_obj_flag:
             shared_data.mutex.release()
             return state_instance.go_to_obj_state
-        
+        # Failed to turn in time
+        # if controller.is_outside_lookahead():
+        #     shared_data.new_waypoints = shared_data.new_waypoints[-1:]
+        #     shared_data.new_waypoints.insert(0, shared_data.cur_position)
+        #     shared_data.mutex.release()
+        #     return state_instance.new_controller_state
         shared_data.mutex.release()
         return state_instance.drive_state
+
+
+class NewObstacleAvoidanceControllerState(State):
+    def on_enter(self):
+        print("Entering NewObstacleAvoidanceControllerState...")
+        shared_data.mutex.acquire()
+        # invalidate the flag so don't enter again
+        shared_data.new_obstacle_avoidance_waypoints_flag = False
+        # diff btw the last two waypoints
+
+        diff = np.array(shared_data.obstacle_avoidance_new_waypoints[-1]) - np.array(
+            shared_data.obstacle_avoidance_new_waypoints[-2])
+        # calc the angle of the line connecting the last two waypoints
+        next_orientation = math.atan2(diff[1], diff[0])
+
+        shared_data.obstacle_avoidance_controller = PurePursuit(shared_data.obstacle_avoidance_new_waypoints,
+                                                                shared_data.cur_heading,
+                                                                next_orientation,
+                                                                fineness = 0.1,
+                                                                max_look_ahead=0.5)
+        shared_data.obstacle_avoidance_controller.waypoints = np.array(shared_data.obstacle_avoidance_new_waypoints)
+        shared_data.start_time = time()
+        shared_data.mutex.release()
+
+    def step(self):
+        # if obstacle then avoid
+        shared_data.mutex.acquire()
+        vel_msg = Float64MultiArray()
+        if time()-shared_data.start_time < 2:
+            print(time()-shared_data.start_time)
+            print("pos:", shared_data.cur_position)
+            vel_msg.data = [-shared_data.AUTON_SPEED,
+                            -shared_data.AUTON_SPEED]
+            shared_data.auton_publisher.publish(vel_msg)
+            shared_data.mutex.release()
+            return state_instance.new_obstacle_avoidance_controller_state
+        vel_msg.data = [0, 0]
+        shared_data.auton_publisher.publish(vel_msg)
+        shared_data.mutex.release()
+        return state_instance.drive_state
+
+
+class ObstacleRecoveryState(State):
+    def on_enter(self):
+        print("Entering ObstacleRecoveryState...")
+        pass
+
+    def step(self):
+        new_unreached_pts = []
+        # remove points we "passed"
+        uni = shared_data.controller.user_next_index
+        last_reached_pt = np.array(shared_data.controller.user_pts[uni-1])
+        user_unreached_pts = shared_data.controller.user_pts[uni:]
+        for i, u_pt in enumerate(user_unreached_pts):
+            u_pt = np.array(u_pt)
+            # if we passed the point, mark it as reached
+            if np.dot(u_pt-np.array(shared_data.cur_position), u_pt-last_reached_pt) < 0:
+                last_reached_pt = u_pt
+                continue
+            else:
+                new_unreached_pts = user_unreached_pts[i:]
+                break
+        shared_data.new_waypoints = new_unreached_pts
+        shared_data.new_waypoints.insert(0, shared_data.cur_position)
+        # shared_data.new_waypoints_flag = True
+        shared_data.obstacle_avoidance_running = False
+        return state_instance.new_controller_state
 
 
 class ValidatingState(State):
@@ -357,8 +601,10 @@ class ValidatingState(State):
         shared_data.mutex.acquire()
 
         if len(shared_data.position_history) >= shared_data.HIST_POSE_LEN:
-            shared_data.cur_position = list(np.array(shared_data.position_history).mean(axis=0))
-            shared_data.controller.check_should_redo_goal(shared_data.cur_position)
+            shared_data.cur_position = list(
+                np.array(shared_data.position_history).mean(axis=0))
+            shared_data.controller.check_should_redo_goal(
+                shared_data.cur_position)
 
             if shared_data.should_look_for_ar:
                 shared_data.mutex.release()
@@ -396,6 +642,7 @@ class GoalState(State):
         #print("We got to the bottle cuz it was big enough on screen")
         shared_data.cur_state_publisher.publish("goal_reached")
         shared_data.mutex.release()
+
     def step(self) -> State:
         reset_ar_data()
         return state_instance.goal_state
@@ -403,6 +650,7 @@ class GoalState(State):
 class RetryState(State):
     def on_enter(self):
         print("Entering retryState...")
+
     def step(self) -> State:
         shared_data.mutex.acquire()
         shared_data.new_waypoints = [shared_data.go_home_position]
@@ -421,6 +669,7 @@ class SpinState(State):
         shared_data.start_time = time()
         shared_data.start_heading = shared_data.cur_heading
         shared_data.mutex.release()
+
     def step(self) -> State:
         shared_data.mutex.acquire()
 
@@ -465,7 +714,7 @@ class ForwardSpiralState(State):
                                              start_ang=shared_data.cur_heading, 
                                              end_ang=end_ang)
         shared_data.mutex.release()
-        
+
     def step(self) -> State:
         shared_data.mutex.acquire()
         cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
@@ -528,7 +777,7 @@ class BackwardSpiralState(State):
                                              start_ang=shared_data.cur_heading, 
                                              end_ang=end_ang)
         shared_data.mutex.release()
-        
+
     def step(self) -> State:
         shared_data.mutex.acquire()
         cur_pose = [shared_data.cur_position[0], shared_data.cur_position[1], shared_data.cur_heading]
@@ -584,6 +833,7 @@ class GoToARState(State):
         shared_data.mutex.acquire()
         shared_data.start_time = time()
         shared_data.mutex.release()
+
     def step(self) -> State:
         shared_data.mutex.acquire()
 
@@ -596,9 +846,12 @@ class GoToARState(State):
             shared_data.AR_DRIVE_SPEED - off_center * 1.5,
         ]
 
+        for i in range(len(vel_msg.data)):
+            vel_msg.data[i] = clamp(
+                vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
 
-        #print(f"LEFT WHEEL: {vel_msg.data[0]} \
+        # print(f"LEFT WHEEL: {vel_msg.data[0]} \
         #        RIGHT WHEEL: {vel_msg.data[1]}")
 
         # if the AR tag is big enough in frame, must be close enough
@@ -675,6 +928,7 @@ class AlignState(State):
         shared_data.start_time = time()
         shared_data.start_heading = shared_data.cur_heading
         shared_data.mutex.release()
+
     def step(self) -> State:
         shared_data.mutex.acquire()
 
@@ -690,9 +944,12 @@ class AlignState(State):
         # Spin util both tags are in frame
         if shared_data.ar_size <= 0 or\
            shared_data.ar_size2 <= 0:
-            if time() - shared_data.start_time < 1 + shared_data.BACKUP_TIMEOUT and\
+            """if time() - shared_data.start_time < 1 + shared_data.BACKUP_TIMEOUT and\
                abs(shared_data.cur_heading - shared_data.start_heading) < shared_data.SPIN_TOLERANCE:
-                vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
+                vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]"""
+            if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT + shared_data.BACKUP_TIMEOUT:
+                vel_msg.data = [-shared_data.SPIN_SPEED,
+                                shared_data.SPIN_SPEED]
                 shared_data.auton_publisher.publish(vel_msg)
                 if shared_data.ar_size > 0:
                     print("Saw AR Tag Id: 0.0")
@@ -708,7 +965,8 @@ class AlignState(State):
         if (shared_data.ar_x_pose + shared_data.ar_x_pose2)/2 >= 0.6 or\
            (shared_data.ar_x_pose + shared_data.ar_x_pose2)/2 <= 0.4:
             if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT + shared_data.BACKUP_TIMEOUT:
-                vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
+                vel_msg.data = [-shared_data.SPIN_SPEED,
+                                shared_data.SPIN_SPEED]
                 shared_data.auton_publisher.publish(vel_msg)
                 shared_data.mutex.release()
                 return state_instance.align_state
@@ -722,9 +980,10 @@ class AlignState(State):
             print("Should do circle")
             shared_data.mutex.release()
             return state_instance.spin_state
-        
+
         shared_data.mutex.release()
         return state_instance.charge_forward_state
+
 
 class ChargeForwardState(State):
     def on_enter(self):
@@ -739,7 +998,8 @@ class ChargeForwardState(State):
             shared_data.AUTON_SPEED / 3 - off_center * shared_data.STEERING_CONST * 3,
         ]
         for i in range(len(vel_msg.data)):
-            vel_msg.data[i] = clamp(vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+            vel_msg.data[i] = clamp(
+                vel_msg.data[i], -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         shared_data.auton_publisher.publish(vel_msg)
 
         #print(f"LEFT WHEEL: {vel_msg.data[0]} \
@@ -761,6 +1021,7 @@ class ChargeForwardState(State):
         shared_data.mutex.release()
         return state_instance.charge_forward_state
 
+
 class CircleState(State):
     def on_enter(self):
         print("Entering CircleState...")
@@ -778,6 +1039,9 @@ class CircleState(State):
         # Spin 90 degrees CW to be perpendicular to the AR Tag pole
         if not self.done_perp and abs(shared_data.cur_heading - (shared_data.start_heading - math.pi/2)) > shared_data.SPIN_TOLERANCE:
             print(f"Spinning 90 deg for {round(time()-shared_data.start_time, 3)} seconds { abs(shared_data.cur_heading - (shared_data.start_heading - math.pi/2))}")
+            """if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT/4:
+            print(
+                f"Spinning 90 deg for {round(time()-shared_data.start_time, 3)} seconds")"""
             vel_msg.data = [shared_data.SPIN_SPEED, -shared_data.SPIN_SPEED]
             shared_data.auton_publisher.publish(vel_msg)
             shared_data.mutex.release()
@@ -811,14 +1075,17 @@ class CircleState(State):
 def run_machine():
     rate = rospy.Rate(shared_data.RATE)
 
-    state_instance.start_state           = StartState()
-    state_instance.new_controller_state  = NewControllerState()
-    state_instance.drive_state           = DriveState()
-    state_instance.validating_state      = ValidatingState()
-    state_instance.goal_state            = GoalState()
-    state_instance.retry_state           = RetryState()
-    state_instance.spin_state            = SpinState()
-    state_instance.forward_spiral_state  = ForwardSpiralState()
+    state_instance.start_state = StartState()
+    state_instance.new_controller_state = NewControllerState()
+    state_instance.new_obstacle_avoidance_controller_state = NewObstacleAvoidanceControllerState()
+    state_instance.drive_state = DriveState()
+    state_instance.obstacle_recovery_state = ObstacleRecoveryState()
+    # state_instance.obstacle_avoidance_drive_state           = ObstacleAvoidanceDriveState()
+    state_instance.validating_state = ValidatingState()
+    state_instance.goal_state = GoalState()
+    state_instance.retry_state = RetryState()
+    state_instance.spin_state = SpinState()
+    state_instance.forward_spiral_state = ForwardSpiralState()
     state_instance.backward_spiral_state = BackwardSpiralState()
     state_instance.go_to_ar_state        = GoToARState()
     state_instance.go_to_obj_state       = GoToObjectState()
@@ -829,12 +1096,13 @@ def run_machine():
     cur_state = state_instance.start_state
     cur_state.on_enter()
     last_state = cur_state
-    #cur_state = state_instance.goal_state
-    
+    # cur_state = state_instance.goal_state
+
     while not rospy.is_shutdown():
         rate.sleep()
         # if receive new position from ROS, go to new controller state
         if shared_data.new_waypoints_flag:
+            print("user sent more stuff!")
             cur_state = state_instance.new_controller_state
         if last_state != cur_state:
             last_state.on_exit()
