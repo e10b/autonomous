@@ -471,9 +471,9 @@ class DriveState(State):
         vel_msg = Float64MultiArray()
         steering_output = shared_data.STEERING_CONST * \
                 shared_data.cur_speed / steering_radius
-        if abs(steering_radius) < 3: # for sharp turns
-            vel_msg.data = [-steering_output/abs(steering_output)*40.0,
-                            steering_output/abs(steering_output)*40.0]
+        if shared_data.obstacle_avoidance_running and abs(steering_radius) < 3: # for sharp turns in obs avoidance
+            vel_msg.data = [-steering_output/abs(steering_output)*shared_data.AUTON_SPEED,
+                            steering_output/abs(steering_output)*shared_data.AUTON_SPEED]
         else:
             vel_msg.data = [shared_data.AUTON_SPEED - steering_output,
                             shared_data.AUTON_SPEED + steering_output]
