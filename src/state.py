@@ -75,6 +75,7 @@ class SharedData():
     WAYPOINTS_TOPIC_NAME = "/rover_waypoint"
     ARTAG_TOPIC_NAME     = "/artag_position"
     OBJECT_TOPIC_NAME    = "/object_position"
+    OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME = "/obstacle_avoidance/path"
     CUR_STATE_TOPIC_NAME = "/set_state"
 
     ################ One mutex to rule all the following vars ################
@@ -418,6 +419,8 @@ class StartState(State):
         rospy.Subscriber(shared_data.VELOCITY_TOPIC_NAME, TwistStamped, on_new_velocity_msg)
         rospy.Subscriber(shared_data.ARTAG_TOPIC_NAME, Float64MultiArray, found_ar_tag)
         rospy.Subscriber(shared_data.OBJECT_TOPIC_NAME, Float64MultiArray, found_object)
+        rospy.Subscriber(shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME,
+                         Float64MultiArray, on_receive_new_obstacle_avoidance_waypoints)
 
 
     def step(self):
