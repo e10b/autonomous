@@ -38,7 +38,7 @@ class SharedData():
     OBJ_SPIRAL_COILS = 8
     OBJ_TIMEOUT = 5
     AR_TIMEOUT = 20
-    OBJ_TIMEOUT = 20
+    # OBJ_TIMEOUT = 20
     SPIRAL_TIMEOUT = 300
     OBJ_SPIRAL_TIMEOUT = 300
     AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
