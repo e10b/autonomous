@@ -24,3 +24,4 @@ class GPS_2_NED():
 
   def xy_to_gps(self, x, y):
     lat, lon = gc.xy2ll(x, y, olat, olan)
+    return lat, lon
