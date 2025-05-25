@@ -77,6 +77,7 @@ class SharedData():
     OBJECT_TOPIC_NAME    = "/object_position"
     OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME = "/obstacle_avoidance/path"
     CUR_STATE_TOPIC_NAME = "/set_state"
+    AUTON_PATH_NAME = "/auton_path_display"
 
     ################ One mutex to rule all the following vars ################
     mutex = Lock()  # this is for the entire data class
@@ -84,6 +85,7 @@ class SharedData():
     ################ Pub and sub section ################
     auton_publisher = None
     cur_state_publisher = None
+    auton_path_publisher = None
 
     ################ global variables ################
     cur_position = None  # current position in x and y converted from gps intput
@@ -369,6 +371,7 @@ def reset_ar_data():
     
     shared_data.mutex.release()
 
+
 class State():
     def __init__(self):
         pass
@@ -413,6 +416,9 @@ class StartState(State):
             shared_data.AUTON_TOPIC_NAME, Float64MultiArray, queue_size=1)
         shared_data.cur_state_publisher = rospy.Publisher(
             shared_data.CUR_STATE_TOPIC_NAME, String, queue_size=1)
+        shared_data.auton_path_publisher = rospy.Publisher(
+            shared_data.AUTON_PATH_NAME, Float64MultiArray, queue_size=1)
+
         rospy.Subscriber(shared_data.GPS_TOPIC_NAME, NavSatFix, on_new_gps_msg)
         rospy.Subscriber(shared_data.COMPASS_TOPIC_NAME, Float64, on_new_heading_msg)
         rospy.Subscriber(shared_data.WAYPOINTS_TOPIC_NAME, Float64MultiArray, on_receive_new_gps_waypoint)
@@ -442,12 +448,27 @@ class NewControllerState(State):
         shared_data.new_waypoints_flag = False  # invalidate the flag so don't enter again
         shared_data.obstacle_avoidance_running = False
 
+
         shared_data.mutex.release()
 
     def step(self):
         # # if obstacle then avoid
         # if shared_data.new_obstacle_avoidance_waypoints_flag:
         #     return state_instance.new_obstacle_avoidance_controller_state
+
+        shared_data.mutex.acquire()
+
+        # Publish autonomous path for frontend display
+        waypoints_msg = Float64MultiArray()
+        waypoints_msg_data = []
+
+        for x, y in shared_data.controller.waypoints:
+            lat, lon = GPS_2_NED.xy_to_gps(x, y)
+            waypoints_msg_data.extend((lat, lon))
+
+        shared_data.auton_path_publisher.publish(waypoints_msg)
+        shared_data.mutex.release()
+
         return state_instance.drive_state
 
 
