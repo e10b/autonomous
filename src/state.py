@@ -46,7 +46,7 @@ class SharedData():
     OBJ_W_TOLERANCE = 0.08 # width of object we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
-    HEARTBEAT_TIMEOUT = (60)*8 # time in seconds after which we return to previous heartbeat coordinate
+    HEARTBEAT_TIMEOUT = (60)*4 # time in seconds after which we return to previous heartbeat coordinate
 
     """ Alternate Variables from Brandon-Fix
     AUTON_SPEED = 50
@@ -126,7 +126,7 @@ class SharedData():
     obstacle_avoidance_running = False
 
     # heartbeat time and pos
-    last_heartbeat_time = None
+    last_heartbeat_time = time()
     last_heartbeat_pos  = []
     go_to_heartbeat     = False
 
@@ -680,6 +680,11 @@ class GoalState(State):
         elif shared_data.found_obj_flag:
             print(shared_data.obj_cX, shared_data.found_obj_flag)
 
+        # don't flash green when returning via heartbeat, just sit in this loop til new pts
+        if shared_data.go_to_heartbeat:
+            shared_data.mutex.release()
+            return
+
         #print("We got to the bottle cuz it was big enough on screen")
         shared_data.cur_state_publisher.publish("goal_reached")
 
@@ -692,12 +697,10 @@ class GoalState(State):
             shared_data.go_to_heartbeat = False
             shared_data.mutex.release()
             return shared_data.heartbeat_state
-        
-        # add this goal state position if we have recieved heartbeat
-        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat_time - time() < 30:
-                shared_data.last_heartbeat_pos.append(shared_data.cur_position)
 
-        shared_data.go_to_heartbeat = False
+        # add this goal state position if we have recieved heartbeat
+        if shared_data.last_heartbeat_time - time() < 30:
+                shared_data.last_heartbeat_pos.append(shared_data.cur_position)        
 
         shared_data.mutex.release()
 
