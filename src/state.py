@@ -680,6 +680,15 @@ class GoalState(State):
 
         #print("We got to the bottle cuz it was big enough on screen")
         shared_data.cur_state_publisher.publish("goal_reached")
+
+        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            # lazy solution is wait 15 seconds
+            wait_time = time() + 15
+            while(wait_time - time() > 0):
+                pass # no op, this can definitely be improved this is just busy waiting
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
+
         shared_data.mutex.release()
 
     def step(self) -> State:
@@ -716,6 +725,10 @@ class SpinState(State):
         vel_msg = Float64MultiArray()
         vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
         shared_data.auton_publisher.publish(vel_msg)
+
+        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
 
         if shared_data.found_ar_flag and shared_data.should_look_for_ar:
             shared_data.mutex.release()
@@ -768,7 +781,10 @@ class ForwardSpiralState(State):
 
         #print(f"LEFTWHEEL{vel_msg.data[0]} \
                 #RIGHTWHEEL{vel_msg.data[1]}")
-        
+        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
+
         if shared_data.found_ar_flag and shared_data.should_look_for_ar:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
@@ -835,6 +851,9 @@ class BackwardSpiralState(State):
         #      "LEFT WHEEL", round(vel_msg.data[0], 3),
         #      "RIGHT WHEEL", round(vel_msg.data[1], 3),
         # )
+        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
 
         if shared_data.found_ar_flag and shared_data.should_look_for_ar:
             shared_data.mutex.release()
@@ -905,6 +924,10 @@ class GoToARState(State):
         # if the AR tag is big enough in frame, must be close enough
 
         # if abs(shared_data.ar_size) > shared_data.AR_TOLERANCE and False:
+        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
+
         if abs(shared_data.ar_size) > shared_data.AR_TOLERANCE:
             vel_msg.data = [0, 0]
             shared_data.auton_publisher.publish(vel_msg)
@@ -952,6 +975,10 @@ class GoToObjectState(State):
 
         # Publish velocity commands
         shared_data.auton_publisher.publish(vel_msg)  # check if we need different publisher here, ADD
+
+        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
 
         # Decide if the object is close enough to stop
         if shared_data.obj_width > shared_data.OBJ_W_TOLERANCE or shared_data.obj_height > shared_data.OBJ_H_TOLERANCE :
