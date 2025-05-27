@@ -127,7 +127,8 @@ class SharedData():
 
     # heartbeat time and pos
     last_heartbeat_time = None
-    last_heartbeat_pos  = None
+    last_heartbeat_pos  = []
+    go_to_heartbeat     = False
 
     # all should_look_for_ar values to synchronize with new_waypoints
     should_look_for_ar = False
@@ -309,7 +310,8 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints):
 def heartbeat_reset(msg):
     shared_data.mutex.acquire()
     shared_data.last_heartbeat_time = time()
-    shared_data.last_heartbeat_pos = shared_data.cur_position
+    if not shared_data.last_heartbeat_pos:
+        shared_data.last_heartbeat_pos.append(shared_data.cur_position)
     shared_data.mutex.release()
 
 def found_ar_tag(msg):
@@ -526,7 +528,7 @@ class DriveState(State):
         #      "RIGHT WHEEL", round(vel_msg.data[1], 3),
         #      "CUR_SPEED", round(shared_data.cur_speed, 3),
         # )
-        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
             shared_data.mutex.release()
             return shared_data.heartbeat_state
         if controller.did_reach_goal():
@@ -681,13 +683,21 @@ class GoalState(State):
         #print("We got to the bottle cuz it was big enough on screen")
         shared_data.cur_state_publisher.publish("goal_reached")
 
-        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+        # we in goalstate but heartbeat has passed
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
             # lazy solution is wait 15 seconds
             wait_time = time() + 15
             while(wait_time - time() > 0):
                 pass # no op, this can definitely be improved this is just busy waiting
+            shared_data.go_to_heartbeat = False
             shared_data.mutex.release()
             return shared_data.heartbeat_state
+        
+        # add this goal state position if we have recieved heartbeat
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat_time - time() < 30:
+                shared_data.last_heartbeat_pos.append(shared_data.cur_position)
+
+        shared_data.go_to_heartbeat = False
 
         shared_data.mutex.release()
 
@@ -726,7 +736,7 @@ class SpinState(State):
         vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
         shared_data.auton_publisher.publish(vel_msg)
 
-        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
             shared_data.mutex.release()
             return shared_data.heartbeat_state
 
@@ -781,7 +791,7 @@ class ForwardSpiralState(State):
 
         #print(f"LEFTWHEEL{vel_msg.data[0]} \
                 #RIGHTWHEEL{vel_msg.data[1]}")
-        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
             shared_data.mutex.release()
             return shared_data.heartbeat_state
 
@@ -851,7 +861,7 @@ class BackwardSpiralState(State):
         #      "LEFT WHEEL", round(vel_msg.data[0], 3),
         #      "RIGHT WHEEL", round(vel_msg.data[1], 3),
         # )
-        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
             shared_data.mutex.release()
             return shared_data.heartbeat_state
 
@@ -889,7 +899,8 @@ class HeartbeatState(State):
         shared_data.mutex.acquire()
         shared_data.start_time = time()
         shared_data.new_waypoints = shared_data.new_waypoints[-1:]
-        shared_data.new_waypoints.insert(0, shared_data.heartbeat_position)
+        shared_data.new_waypoints.insert(0, shared_data.heartbeat_position[-1])
+        shared_data.go_to_heartbeat = True
         shared_data.mutex.release()
         return state_instance.new_controller_state
 
@@ -924,7 +935,7 @@ class GoToARState(State):
         # if the AR tag is big enough in frame, must be close enough
 
         # if abs(shared_data.ar_size) > shared_data.AR_TOLERANCE and False:
-        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
             shared_data.mutex.release()
             return shared_data.heartbeat_state
 
@@ -976,7 +987,7 @@ class GoToObjectState(State):
         # Publish velocity commands
         shared_data.auton_publisher.publish(vel_msg)  # check if we need different publisher here, ADD
 
-        if shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
             shared_data.mutex.release()
             return shared_data.heartbeat_state
 
