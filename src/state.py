@@ -901,8 +901,8 @@ class HeartbeatState(State):
         print("Entering Heartbeat State")
         shared_data.mutex.acquire()
         shared_data.start_time = time()
-        shared_data.new_waypoints = shared_data.new_waypoints[-1:]
-        shared_data.new_waypoints.insert(0, shared_data.heartbeat_position[-1])
+        shared_data.new_waypoints = [shared_data.last_heartbeat_pos[-1]]
+        shared_data.new_waypoints.insert(0, shared_data.cur_position)
         shared_data.go_to_heartbeat = True
         shared_data.mutex.release()
         return state_instance.new_controller_state
