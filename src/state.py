@@ -473,15 +473,17 @@ class NewControllerState(State):
 
         shared_data.mutex.acquire()
 
-        # Publish autonomous path for frontend display
+        # Prepare waypoint message for frontend display
         waypoints_msg = Float64MultiArray()
-        waypoints_msg_data = []
+        waypoints_msg.data = []
 
         for x, y in shared_data.controller.waypoints:
-            lat, lon = GPS_2_NED.xy_to_gps(x, y)
-            waypoints_msg_data.extend((lat, lon))
+            lat, lon = shared_data.gps_converter.xy_to_gps(x, y)
+            waypoints_msg.data.append(lat)
+            waypoints_msg.data.append(lon)
 
         shared_data.auton_path_publisher.publish(waypoints_msg)
+
         shared_data.mutex.release()
 
         return state_instance.drive_state
