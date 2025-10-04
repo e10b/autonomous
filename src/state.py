@@ -19,6 +19,7 @@ from gps_to_ned import GPS_2_NED
 from pure_pursuit.pp import PurePursuit
 from pure_pursuit.spiral_generation import get_spiral
 
+from states.start_state import StartState
 
 class SharedData():
     ################ Constant section ################
@@ -187,8 +188,6 @@ def on_new_gps_msg(msg):
     # shared_data.gps_time = time()
 
     shared_data.mutex.release()
-
-
 
 def on_new_heading_msg(msg):
     shared_data.mutex.acquire()
@@ -422,31 +421,31 @@ class StateInstance():
 state_instance = StateInstance()
 
 
-class StartState(State):
-    def on_enter(self):
-        print("Entering startState...")
-        with open('debug.txt', 'w') as f:
-            f.write('')
-        shared_data.auton_publisher = rospy.Publisher(
-            shared_data.AUTON_TOPIC_NAME, Float64MultiArray, queue_size=1)
-        shared_data.cur_state_publisher = rospy.Publisher(
-            shared_data.CUR_STATE_TOPIC_NAME, String, queue_size=1)
-        shared_data.auton_path_publisher = rospy.Publisher(
-            shared_data.AUTON_PATH_NAME, Float64MultiArray, queue_size=1)
+# class StartState(State):
+#     def on_enter(self):
+#         print("Entering startState...")
+#         with open('debug.txt', 'w') as f:
+#             f.write('')
+#         shared_data.auton_publisher = rospy.Publisher(
+#             shared_data.AUTON_TOPIC_NAME, Float64MultiArray, queue_size=1)
+#         shared_data.cur_state_publisher = rospy.Publisher(
+#             shared_data.CUR_STATE_TOPIC_NAME, String, queue_size=1)
+#         shared_data.auton_path_publisher = rospy.Publisher(
+#             shared_data.AUTON_PATH_NAME, Float64MultiArray, queue_size=1)
 
-        rospy.Subscriber(shared_data.GPS_TOPIC_NAME, NavSatFix, on_new_gps_msg)
-        rospy.Subscriber(shared_data.COMPASS_TOPIC_NAME, Float64, on_new_heading_msg)
-        rospy.Subscriber(shared_data.WAYPOINTS_TOPIC_NAME, Float64MultiArray, on_receive_new_gps_waypoint)
-        rospy.Subscriber(shared_data.VELOCITY_TOPIC_NAME, TwistStamped, on_new_velocity_msg)
-        rospy.Subscriber(shared_data.ARTAG_TOPIC_NAME, Float64MultiArray, found_ar_tag)
-        rospy.Subscriber(shared_data.OBJECT_TOPIC_NAME, Float64MultiArray, found_object)
-        rospy.Subscriber(shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME,
-                        Float64MultiArray, on_receive_new_obstacle_avoidance_waypoints)
-        rospy.Subscriber(shared_data.HEARTBEAT_TOPIC, Bool, heartbeat_reset)
+#         rospy.Subscriber(shared_data.GPS_TOPIC_NAME, NavSatFix, on_new_gps_msg)
+#         rospy.Subscriber(shared_data.COMPASS_TOPIC_NAME, Float64, on_new_heading_msg)
+#         rospy.Subscriber(shared_data.WAYPOINTS_TOPIC_NAME, Float64MultiArray, on_receive_new_gps_waypoint)
+#         rospy.Subscriber(shared_data.VELOCITY_TOPIC_NAME, TwistStamped, on_new_velocity_msg)
+#         rospy.Subscriber(shared_data.ARTAG_TOPIC_NAME, Float64MultiArray, found_ar_tag)
+#         rospy.Subscriber(shared_data.OBJECT_TOPIC_NAME, Float64MultiArray, found_object)
+#         rospy.Subscriber(shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME,
+#                         Float64MultiArray, on_receive_new_obstacle_avoidance_waypoints)
+#         rospy.Subscriber(shared_data.HEARTBEAT_TOPIC, Bool, heartbeat_reset)
 
 
-    def step(self):
-        return state_instance.start_state
+#     def step(self):
+#         return state_instance.start_state
 
 
 class NewControllerState(State):
@@ -1167,7 +1166,7 @@ class CircleState(State):
 def run_machine():
     rate = rospy.Rate(shared_data.RATE)
 
-    state_instance.start_state          = StartState()
+    state_instance.start_state          = StartState(shared_data, state_instance)
     state_instance.new_controller_state = NewControllerState()
     state_instance.new_obstacle_avoidance_controller_state = NewObstacleAvoidanceControllerState()
     state_instance.drive_state = DriveState()
