@@ -189,6 +189,7 @@ def on_new_gps_msg(msg):
     shared_data.mutex.release()
 
 
+
 def on_new_heading_msg(msg):
     shared_data.mutex.acquire()
 
