@@ -21,6 +21,11 @@ from pure_pursuit.pp import PurePursuit
 from pure_pursuit.spiral_generation import get_spiral
 
 from states.start_state import StartState
+from states.obstacle_recovery_state import ObstacleRecoveryState
+from states.new_controller_state import NewControllerState
+from states.new_obstacle_avoidance_controller_state import NewObstacleAvoidanceControllerState
+from states.drive_state import DriveState
+from states.validating_state import ValidatingState
 
 class SharedData():
     ################ Constant section ################
@@ -197,114 +202,6 @@ class StateInstance():
     heartbeat_state         = None
 
 state_instance = StateInstance()
-
-class NewObstacleAvoidanceControllerState(State):
-    def on_enter(self):
-        print("Entering NewObstacleAvoidanceControllerState...")
-        shared_data.mutex.acquire()
-        # invalidate the flag so don't enter again
-        shared_data.new_obstacle_avoidance_waypoints_flag = False
-        # diff btw the last two waypoints
-
-        diff = np.array(shared_data.obstacle_avoidance_new_waypoints[-1]) - np.array(
-            shared_data.obstacle_avoidance_new_waypoints[-2])
-        # calc the angle of the line connecting the last two waypoints
-        next_orientation = math.atan2(diff[1], diff[0])
-
-        shared_data.obstacle_avoidance_controller = PurePursuit(shared_data.obstacle_avoidance_new_waypoints,
-                                                                shared_data.cur_heading,
-                                                                next_orientation,
-                                                                fineness = 0.1,
-                                                                max_look_ahead=0.5)
-        shared_data.obstacle_avoidance_controller.waypoints = np.array(shared_data.obstacle_avoidance_new_waypoints)
-        shared_data.start_time = time()
-        shared_data.mutex.release()
-
-    def step(self):
-        # if obstacle then avoid
-        shared_data.mutex.acquire()
-        vel_msg = Float64MultiArray()
-        if time()-shared_data.start_time < 2:
-            print(time()-shared_data.start_time)
-            print("pos:", shared_data.cur_position)
-            vel_msg.data = [-shared_data.AUTON_SPEED,
-                            -shared_data.AUTON_SPEED]
-            shared_data.auton_publisher.publish(vel_msg)
-            shared_data.mutex.release()
-            return state_instance.new_obstacle_avoidance_controller_state
-        vel_msg.data = [0, 0]
-        shared_data.auton_publisher.publish(vel_msg)
-        shared_data.mutex.release()
-        return state_instance.drive_state
-
-
-class ObstacleRecoveryState(State):
-    def on_enter(self):
-        print("Entering ObstacleRecoveryState...")
-        pass
-
-    def step(self):
-        new_unreached_pts = []
-        # remove points we "passed"
-        uni = shared_data.controller.user_next_index
-        last_reached_pt = np.array(shared_data.controller.user_pts[uni-1])
-        user_unreached_pts = shared_data.controller.user_pts[uni:]
-        for i, u_pt in enumerate(user_unreached_pts):
-            u_pt = np.array(u_pt)
-            # if we passed the point, mark it as reached
-            if np.dot(u_pt-np.array(shared_data.cur_position), u_pt-last_reached_pt) < 0:
-                last_reached_pt = u_pt
-                continue
-            else:
-                new_unreached_pts = user_unreached_pts[i:]
-                break
-        shared_data.new_waypoints = new_unreached_pts
-        shared_data.new_waypoints.insert(0, shared_data.cur_position)
-        # shared_data.new_waypoints_flag = True
-        shared_data.obstacle_avoidance_running = False
-        return state_instance.new_controller_state
-
-
-class ValidatingState(State):
-    def on_enter(self):
-        print("Entering validatingState...")
-        print("Clearing position_history...")
-        shared_data.mutex.acquire()
-        shared_data.position_history.clear()
-        shared_data.mutex.release()
-
-    def step(self):
-        # wait for 100 values, then average them
-        # check if we are still inside the goal, else set up a new controller
-        shared_data.mutex.acquire()
-
-        if len(shared_data.position_history) >= shared_data.HIST_POSE_LEN:
-            shared_data.cur_position = list(
-                np.array(shared_data.position_history).mean(axis=0))
-            shared_data.controller.check_should_redo_goal(
-                shared_data.cur_position)
-
-            if shared_data.should_look_for_ar:
-                shared_data.mutex.release()
-                return state_instance.spin_state
-
-                
-            if shared_data.should_look_for_obj:
-                shared_data.mutex.release()
-                return state_instance.spin_state
-            
-            if not shared_data.controller.did_reach_goal():
-                shared_data.new_waypoints = shared_data.new_waypoints[-1:]
-                shared_data.new_waypoints.insert(0, shared_data.cur_position)
-                shared_data.mutex.release()
-                return state_instance.new_controller_state
-            else:
-                shared_data.mutex.release()
-                return state_instance.goal_state
-
-        shared_data.mutex.release()
-        return state_instance.validating_state
-
 
 class GoalState(State):
     def on_enter(self):
@@ -802,12 +699,12 @@ def run_machine():
     rate = rospy.Rate(shared_data.RATE)
 
     state_instance.start_state          = StartState(shared_data, state_instance)
-    state_instance.new_controller_state = NewControllerState()
-    state_instance.new_obstacle_avoidance_controller_state = NewObstacleAvoidanceControllerState()
-    state_instance.drive_state = DriveState()
-    state_instance.obstacle_recovery_state = ObstacleRecoveryState()
+    state_instance.new_controller_state = NewControllerState(shared_data, state_instance)
+    state_instance.new_obstacle_avoidance_controller_state = NewObstacleAvoidanceControllerState(shared_data, state_instance)
+    state_instance.drive_state = DriveState(shared_data, state_instance)
+    state_instance.obstacle_recovery_state = ObstacleRecoveryState(shared_data, state_instance)
     # state_instance.obstacle_avoidance_drive_state           = ObstacleAvoidanceDriveState()
-    state_instance.validating_state      = ValidatingState()
+    state_instance.validating_state      = ValidatingState(shared_data, state_instance)
     state_instance.goal_state            = GoalState()
     state_instance.retry_state           = RetryState()
     state_instance.spin_state            = SpinState()
