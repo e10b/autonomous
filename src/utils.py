@@ -75,7 +75,7 @@ def on_receive_new_gps_waypoint(gps_waypoint_list, shared_data):
     # Check if required shared_data fields are initialized
     if shared_data.gps_converter is None or \
         shared_data.cur_position is None or \
-       shared_data.cur_heading is None:
+        shared_data.cur_heading is None:
         print("Required shared_data fields are not initialized. Exiting function.")
         shared_data.mutex.release()
         return
