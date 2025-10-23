@@ -2,6 +2,7 @@ from state_class import State
 from std_msgs.msg import Float64MultiArray
 from time import time
 from utils import *
+from utils import clamp
 
 class DriveState(State):
     def __init__(self, shared_data, state_instance):
@@ -44,15 +45,15 @@ class DriveState(State):
             vel_msg.data[i] = clamp(
                 vel_msg.data[i], -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             print("heading", self.shared_data.cur_heading, "pos", self.shared_data.cur_position, 
-                  "next_pt", controller.waypoints[controller.look_ahead_point_index])  # Print current heading, position, and next waypoint
+                "next_pt", controller.waypoints[controller.look_ahead_point_index])  # Print current heading, position, and next waypoint
         # Publish velocity message to robot
         self.shared_data.auton_publisher.publish(vel_msg)
         print(
-             "CURR POS", round(self.shared_data.cur_position[0], 3), round(self.shared_data.cur_position[1], 3),
-             "FIN POS", round(self.shared_data.new_waypoints[-1][0], 3), round(self.shared_data.new_waypoints[-1][1], 3),
-             "LEFT WHEEL", round(vel_msg.data[0], 3),
-             "RIGHT WHEEL", round(vel_msg.data[1], 3),
-             "CUR_SPEED", round(self.shared_data.cur_speed, 3),
+            "CURR POS", round(self.shared_data.cur_position[0], 3), round(self.shared_data.cur_position[1], 3),
+            "FIN POS", round(self.shared_data.new_waypoints[-1][0], 3), round(self.shared_data.new_waypoints[-1][1], 3),
+            "LEFT WHEEL", round(vel_msg.data[0], 3),
+            "RIGHT WHEEL", round(vel_msg.data[1], 3),
+            "CUR_SPEED", round(self.shared_data.cur_speed, 3),
         )
         # Check for heartbeat timeout
         if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:

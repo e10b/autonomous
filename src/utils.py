@@ -74,7 +74,7 @@ def on_receive_new_gps_waypoint(gps_waypoint_list, shared_data):
 
     # Check if required shared_data fields are initialized
     if shared_data.gps_converter is None or \
-       shared_data.cur_position is None or \
+        shared_data.cur_position is None or \
        shared_data.cur_heading is None:
         print("Required shared_data fields are not initialized. Exiting function.")
         shared_data.mutex.release()
@@ -116,7 +116,7 @@ def found_ar_tag(msg, shared_data):
     # Check if the detected AR tag matches the primary target ID
     if shared_data.target_id == msg.data[-1]:
         [shared_data.ar_cX, shared_data.ar_cY,
-         shared_data.ar_size, shared_data.ar_id] = msg.data
+        shared_data.ar_size, shared_data.ar_id] = msg.data
         shared_data.found_ar_flag = True
         shared_data.latest_ar_found = time.time()
         print(f"Found primary AR tag: id={shared_data.ar_id}, cX={shared_data.ar_cX}, cY={shared_data.ar_cY}, size={shared_data.ar_size}")
@@ -124,7 +124,7 @@ def found_ar_tag(msg, shared_data):
     # Check if the detected AR tag matches the secondary target ID
     if hasattr(shared_data, 'target_id2') and shared_data.target_id2 == msg.data[3]:
         [shared_data.ar_cX2, shared_data.ar_cY2,
-         shared_data.ar_size2, shared_data.ar_id2] = msg.data
+        shared_data.ar_size2, shared_data.ar_id2] = msg.data
         print(f"Found secondary AR tag: id2={shared_data.ar_id2}, cX2={shared_data.ar_cX2}, cY2={shared_data.ar_cY2}, size2={shared_data.ar_size2}")
 
     # If the found AR tag does not match the primary target, release mutex and exit
@@ -220,7 +220,7 @@ def found_object(msg, shared_data):
     # Check if the detected object matches the target object ID
     if shared_data.target_obj_id == msg.data[-1]:
         [shared_data.obj_cX, shared_data.obj_cY,
-         shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
+        shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
         shared_data.counter += 1
         print("Found object we were looking for with id:", msg.data[-1])
         # If the object has been detected at least twice, set the found flag

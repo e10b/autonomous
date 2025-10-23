@@ -38,7 +38,7 @@ class StartState(State):
         rospy.Subscriber(self.shared_data.ARTAG_TOPIC_NAME, Float64MultiArray, lambda msg: found_ar_tag(msg, self.shared_data))
         rospy.Subscriber(self.shared_data.OBJECT_TOPIC_NAME, Float64MultiArray, lambda msg: found_object(msg, self.shared_data))
         rospy.Subscriber(self.shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME,
-                         Float64MultiArray, lambda msg: on_receive_new_obstacle_avoidance_waypoints(msg, self.shared_data))
+                        Float64MultiArray, lambda msg: on_receive_new_obstacle_avoidance_waypoints(msg, self.shared_data))
         rospy.Subscriber(self.shared_data.HEARTBEAT_TOPIC, Bool, lambda msg: heartbeat_reset(msg, self.shared_data))
         print("[StartState] Initialization complete.")
 
