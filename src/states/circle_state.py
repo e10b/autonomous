@@ -18,6 +18,7 @@ class CircleState(State):
         self.shared_data.mutex.release()
 
         self.done_perp = False
+
     def step(self) -> State:
         self.shared_data.mutex.acquire()
         vel_msg = Float64MultiArray()
