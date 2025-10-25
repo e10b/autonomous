@@ -14,5 +14,5 @@ class RetryState(State):
         self.shared_data.new_waypoints.insert(0, self.shared_data.cur_position)
         self.shared_data.should_look_for_ar = False
 
-        self.on_entershared_data.mutex.release()
+        self.shared_data.mutex.release()
         return self.state_instance.new_controller_state

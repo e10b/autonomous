@@ -15,7 +15,7 @@ class ChargeForwardState(State):
     def step(self) -> State:
         self.shared_data.mutex.acquire()
         vel_msg = Float64MultiArray()
-        off_center = (self.shared_data.ar_x_pose + self.shared_data.ar_x_pose2)/2 - 0.5
+        off_center = (self.shared_data.ar_cX + self.shared_data.ar_cX2)/2 - 0.5
         vel_msg.data = [
             self.shared_data.AUTON_SPEED / 3 + off_center * self.shared_data.STEERING_CONST * 3,
             self.shared_data.AUTON_SPEED / 3 - off_center * self.shared_data.STEERING_CONST * 3,
@@ -29,7 +29,7 @@ class ChargeForwardState(State):
         #        RIGHT WHEEL: {vel_msg.data[1]}")
 
         if self.shared_data.ar_size > 0.01 or\
-           self.shared_data.ar_size2 > 0.01:
+            self.shared_data.ar_size2 > 0.01:
             self.shared_data.start_time = time()
 
         print(f"Running for {round(time()-self.shared_data.start_time, 3)} seconds")

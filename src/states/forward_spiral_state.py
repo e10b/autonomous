@@ -23,7 +23,7 @@ class ForwardSpiralState(State):
         # pts = [(0, 0), (0, 3), (-0.5, 3), (-1, -4)]
         if self.shared_data.should_look_for_obj:
             pts = get_spiral(self.shared_data.cur_position[0], self.shared_data.cur_position[1], 
-                                 radius=self.shared_data.OBJ_SPIRAL_RADIUS, coils=self.shared_data.OBJ_SPIRAL_COILS, step=2, direction=1)
+                                radius=self.shared_data.OBJ_SPIRAL_RADIUS, coils=self.shared_data.OBJ_SPIRAL_COILS, step=2, direction=1)
         end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
                             (pts[-1][0] - pts[-2][0]))
         self.shared_data.controller = PurePursuit(pts=pts, 
