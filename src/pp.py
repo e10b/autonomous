@@ -1,0 +1,169 @@
+import numpy as np
+from scipy.interpolate import CubicSpline
+from scipy.misc import derivative
+from scipy.integrate import quad
+from scipy.spatial import KDTree
+import matplotlib.pyplot as plt
+
+class PurePursuit():
+  def __init__(self, pts, start_ang, end_ang, tolerance=1.5, URC_requirement=3, min_look_ahead=1/2, max_look_ahead=2, fineness=0.01):
+    self.user_pts = pts
+    self.user_unreached_pts = pts
+    self.final = np.array(pts[-1])
+    self.path = self.generate_path(pts, [start_ang, end_ang])
+    self.waypoints = self.get_waypoints(self.path, fineness)
+    self.num_waypoints = len(self.waypoints)
+    self.tree = self.build_waypoint_tree(self.waypoints)
+
+    self.tolerance = tolerance
+    self.URC_requirement = URC_requirement
+    self.min_look_ahead = min_look_ahead
+    self.max_look_ahead = max_look_ahead
+
+    self.look_ahead_point_index = 0
+    self.look_ahead_distance = max_look_ahead
+
+    self.reached_goal = False
+    self.outside_lookahead = False
+
+  def did_reach_goal(self):
+    return self.reached_goal
+  
+  def check_should_redo_goal(self, cur_pose):
+    cur_pt = cur_pose[:2]
+    if np.linalg.norm(self.final-cur_pt) >= self.URC_requirement:
+      self.reached_goal = False  # redo the last goal point
+    return not self.reached_goal
+
+  def is_outside_lookahead(self):
+    return self.outside_lookahead
+
+
+  def distance(self, pt1, pt2):
+    return np.linalg.norm(np.array(pt1) - np.array(pt2))
+
+
+
+  def next_point(self, cur_pt):
+
+    # find next point outside lookahead
+    # may be current point if not moved far enough
+    for idx in range(self.look_ahead_point_index, self.num_waypoints):
+      # if point looking at is not reached yet then unreach it
+      if (self.distance(self.waypoints[idx], self.user_unreached_pts[0]) > self.look_ahead_distance):
+        self.user_unreached_pts.pop(0)
+      if (self.distance(self.waypoints[idx], cur_pt) > self.look_ahead_distance):
+        self.look_ahead_point_index = idx
+        break
+
+    # not actually closest
+    curvature_at_cloest = abs(self.curvature(self.path, self.look_ahead_point_index))
+    # print(curvature_at_cloest)
+    self.look_ahead_distance = max(min(self.max_look_ahead, self.max_look_ahead/curvature_at_cloest), self.min_look_ahead)
+
+    return self.waypoints[self.look_ahead_point_index]
+
+  def calc_steering(self, cur_pose):
+    cur_pt = cur_pose[:2]
+    cur_ang = cur_pose[2]
+
+    next_pt = self.next_point(cur_pt)
+    if next_pt is None: return float("inf") # mean finished. don't steer
+    
+    if np.linalg.norm(self.final-cur_pt) < self.tolerance:
+      self.reached_goal = True
+
+    diff = next_pt-cur_pt
+    d = np.linalg.norm(diff)
+    des_ang = np.arctan2(diff[1], diff[0])
+    ang_diff = des_ang-cur_ang
+    theta = np.pi/2 - ang_diff
+    r = d / (2*np.cos(theta))
+    return r # radius of steering
+
+  @staticmethod
+  def generate_path(pts, angs, heading_persistence=1):
+    # pts = [s[:2], t[:2]] # start and end point
+    # angs = [s[2], t[2]] # start and end angles
+    n = np.arange(len(pts))/(len(pts)-1) # discrete
+
+    # start and end derivatives in respect to n
+    derivatives = heading_persistence*np.transpose([np.cos(angs), np.sin(angs)])
+    boundry_condition = ( (1, derivatives[0]) , (1, derivatives[1]) )
+
+    cs = CubicSpline(n, pts, bc_type=boundry_condition)
+    return cs # cubic spline function on [0,1]
+  
+  @staticmethod
+  def curvature(s, t):
+    v = derivative(s, x0=t, dx=1e-3)
+    a = derivative(s, x0=t, n=2, dx=1e-3)
+    return np.linalg.norm(np.cross(v,a)) / np.linalg.norm(v)**3
+
+  @staticmethod
+  def radius(s, t):
+    return 1/PurePursuit.curvature(s, t)
+
+  @staticmethod
+  def normal_vec(s, n):
+    v = derivative(s, x0=n, dx=1e-3)
+    cplx = np.complex(*v)*np.complex(0, 1)
+    norm = np.array([np.real(cplx), np.imag(cplx)])
+    return norm/np.linalg.norm(norm)
+
+  @staticmethod
+  def get_waypoints(s, dist_btw_waypoints):
+    length = quad(lambda t: np.linalg.norm(derivative(s, x0=t, dx=1e-3)), 0, 1)[0]
+    num_segments = length/dist_btw_waypoints
+    fineness = 1/num_segments
+    n = np.arange(0, 1+fineness, fineness)
+    return s(n)
+
+  @staticmethod
+  def build_waypoint_tree(waypoints):
+    return KDTree(waypoints)
+
+
+def visualize_path(cur_pose, plt):
+  cur_pt = cur_pose[:2]
+  ang = cur_pose[2]
+
+  r = pp.calc_steering(cur_pose)
+  if r == float("inf"): return
+  cplx = np.complex(np.cos(cur_pose[2]), np.sin(cur_pose[2]))*np.complex(0, 1)
+  normal = np.array([np.real(cplx), np.imag(cplx)])
+  vec = normal/np.linalg.norm(normal)*r
+  center = cur_pt+vec
+
+  plt.scatter(*pp.next_point(cur_pt)) # target point
+  
+  plt.quiver(*cur_pt, np.cos(ang), np.sin(ang)) # current pose
+  # plt.quiver(*cur_pt, *vec) # normal vector
+  
+  plt.gca().add_patch(plt.Circle(center, r, alpha=0.1))
+
+def generate_spiral(center, theta_max, sparseness):
+  pts = [center]
+  thetas = np.arange(0, theta_max, 0.5)
+  r = 0
+  for theta in thetas:
+    pts.append(center+np.array([r*np.cos(theta), r*np.sin(theta)]))
+    r += sparseness
+  return pts
+
+if __name__ == "__main__":
+  """ test client """
+  pts = generate_spiral(np.array([0, 0]), 8*np.pi, 0.7)
+
+  pp = PurePursuit(pts, start_ang=0, end_ang=1)
+  plt.plot(pp.waypoints[:,0],pp.waypoints[:,1]) # entire path
+
+  cur_pose = (2, 21, 3)
+  visualize_path(cur_pose, plt)
+  cur_pose = (-23, -1, 0)
+  visualize_path(cur_pose, plt)
+
+  plt.scatter(*pp.waypoints[0])
+  plt.scatter(*pp.waypoints[-1])
+  plt.gca().set_aspect("equal")
+  plt.show()
