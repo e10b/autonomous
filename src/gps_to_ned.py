@@ -14,9 +14,13 @@ class GPS_2_NED():
     xg2, yg2 = gc.ll2xy(lat, lon, self.olat, self.olon)
     return xg2, yg2
 
+  def xy_to_gps(self, x, y):
+    lat, lon = gc.xy2ll(x, y, self.olat, self.olon)
+    return lat, lon
+
   def gps_to_utm(self, lat, lon):
     utmy, utmx, utmzone = gc.LLtoUTM(lat, lon)
-    return utmy, ytmx, utmzone
+    return utmy, utmx, utmzone
 
   def gpt_to_axy(self, lat, lon):
     xa, ya = axy.ll2xy(lat, lon, self.olat, self.olon)

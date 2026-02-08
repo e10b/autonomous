@@ -7,7 +7,7 @@ import functools
 import rospy
 from geometry_msgs.msg import Twist
 from geometry_msgs.msg import TwistStamped
-from std_msgs.msg import Float64MultiArray, Float64, String
+from std_msgs.msg import Float64MultiArray, Float64, String, Bool
 from sensor_msgs.msg import NavSatFix
 import math
 from collections import deque
@@ -24,7 +24,7 @@ class SharedData():
     ################ Constant section ################
     RATE = 30
     TOLERANCE = 2
-    HIST_POSE_LEN = 100
+    HIST_POSE_LEN = 60 # used to be 100 but decreased to 60 for time (either is arbitrary)
     AUTON_SPEED = 1.5
     AR_DRIVE_SPEED = 1.0
     OBJ_DRIVE_SPEED = 0.8
@@ -46,6 +46,7 @@ class SharedData():
     OBJ_W_TOLERANCE = 0.08 # width of object we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
+    HEARTBEAT_TIMEOUT = (60)*4 # time in seconds after which we return to previous heartbeat coordinate
 
     """ Alternate Variables from Brandon-Fix
     AUTON_SPEED = 50
@@ -73,10 +74,12 @@ class SharedData():
     VELOCITY_TOPIC_NAME  = "/mavros/global_position/raw/gps_vel"
     COMPASS_TOPIC_NAME   = "/mavros/global_position/compass_hdg"
     WAYPOINTS_TOPIC_NAME = "/rover_waypoint"
+    HEARTBEAT_TOPIC      = "/autonomous_heartbeat"
     ARTAG_TOPIC_NAME     = "/artag_position"
     OBJECT_TOPIC_NAME    = "/object_position"
     OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME = "/obstacle_avoidance/path"
     CUR_STATE_TOPIC_NAME = "/set_state"
+    AUTON_PATH_NAME      = "/auton_path_display"
 
     ################ One mutex to rule all the following vars ################
     mutex = Lock()  # this is for the entire data class
@@ -84,6 +87,7 @@ class SharedData():
     ################ Pub and sub section ################
     auton_publisher = None
     cur_state_publisher = None
+    auton_path_publisher = None
 
     ################ global variables ################
     cur_position = None  # current position in x and y converted from gps intput
@@ -103,7 +107,7 @@ class SharedData():
     should_look_for_obj = False  # self explanatory
     should_look_for_ar  = False  # all should_look_for_ar values to synchronize with new_waypoints
     found_ar_flag       = False  # if ar tag has been detected, can go to ar tag state
-    found_obj_flag   = False  # if object has been detect, can go to object state
+    found_obj_flag      = False  # if object has been detect, can go to object state
     do_gate_task        = False  # if two tags detected, then do gate task
     do_circle_task      = False  # if one tag detected, then do circle task
     latest_ar_found     = 0      # time stamp for latest ar tag found
@@ -120,6 +124,11 @@ class SharedData():
     obstacle_avoidance_new_waypoints = []
     # obstacle avoidance has run and can avoid another obstacle
     obstacle_avoidance_running = False
+
+    # heartbeat time and pos
+    last_heartbeat_time = time()
+    last_heartbeat_pos  = []
+    go_to_heartbeat     = False
 
     # all should_look_for_ar values to synchronize with new_waypoints
     should_look_for_ar = False
@@ -178,6 +187,7 @@ def on_new_gps_msg(msg):
     # shared_data.gps_time = time()
 
     shared_data.mutex.release()
+
 
 
 def on_new_heading_msg(msg):
@@ -300,6 +310,12 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints):
 
     shared_data.mutex.release()
 
+def heartbeat_reset(msg):
+    shared_data.mutex.acquire()
+    shared_data.last_heartbeat_time = time()
+    if not shared_data.last_heartbeat_pos:
+        shared_data.last_heartbeat_pos.append(shared_data.cur_position)
+    shared_data.mutex.release()
 
 def found_ar_tag(msg):
     # Use shared_data (create new variables?)
@@ -339,7 +355,7 @@ def found_object(msg):
          shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
         shared_data.counter += 1
         print("found object we were looking for with id: ", msg.data[-1])
-        if shared_data.counter == 2:
+        if shared_data.counter >= 2:
             shared_data.found_obj_flag = True
         shared_data.latest_obj_found = time()
     #print("msg = ", msg)
@@ -370,6 +386,7 @@ def reset_ar_data():
     shared_data.ar_id2 = 0      # id value of detected ar tag 2
     
     shared_data.mutex.release()
+
 
 class State():
     def __init__(self):
@@ -402,6 +419,7 @@ class StateInstance():
     align_state             = None
     charge_forward_state    = None
     circle_state            = None
+    heartbeat_state         = None
 
 state_instance = StateInstance()
 
@@ -415,6 +433,9 @@ class StartState(State):
             shared_data.AUTON_TOPIC_NAME, Float64MultiArray, queue_size=1)
         shared_data.cur_state_publisher = rospy.Publisher(
             shared_data.CUR_STATE_TOPIC_NAME, String, queue_size=1)
+        shared_data.auton_path_publisher = rospy.Publisher(
+            shared_data.AUTON_PATH_NAME, Float64MultiArray, queue_size=1)
+
         rospy.Subscriber(shared_data.GPS_TOPIC_NAME, NavSatFix, on_new_gps_msg)
         rospy.Subscriber(shared_data.COMPASS_TOPIC_NAME, Float64, on_new_heading_msg)
         rospy.Subscriber(shared_data.WAYPOINTS_TOPIC_NAME, Float64MultiArray, on_receive_new_gps_waypoint)
@@ -422,7 +443,8 @@ class StartState(State):
         rospy.Subscriber(shared_data.ARTAG_TOPIC_NAME, Float64MultiArray, found_ar_tag)
         rospy.Subscriber(shared_data.OBJECT_TOPIC_NAME, Float64MultiArray, found_object)
         rospy.Subscriber(shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME,
-                         Float64MultiArray, on_receive_new_obstacle_avoidance_waypoints)
+                        Float64MultiArray, on_receive_new_obstacle_avoidance_waypoints)
+        rospy.Subscriber(shared_data.HEARTBEAT_TOPIC, Bool, heartbeat_reset)
 
 
     def step(self):
@@ -444,12 +466,29 @@ class NewControllerState(State):
         shared_data.new_waypoints_flag = False  # invalidate the flag so don't enter again
         shared_data.obstacle_avoidance_running = False
 
+
         shared_data.mutex.release()
 
     def step(self):
         # # if obstacle then avoid
         # if shared_data.new_obstacle_avoidance_waypoints_flag:
         #     return state_instance.new_obstacle_avoidance_controller_state
+
+        shared_data.mutex.acquire()
+
+        # Prepare waypoint message for frontend display
+        waypoints_msg = Float64MultiArray()
+        waypoints_msg.data = []
+
+        for x, y in shared_data.controller.waypoints:
+            lat, lon = shared_data.gps_converter.xy_to_gps(x, y)
+            waypoints_msg.data.append(lat)
+            waypoints_msg.data.append(lon)
+
+        shared_data.auton_path_publisher.publish(waypoints_msg)
+
+        shared_data.mutex.release()
+
         return state_instance.drive_state
 
 
@@ -494,7 +533,9 @@ class DriveState(State):
         #      "RIGHT WHEEL", round(vel_msg.data[1], 3),
         #      "CUR_SPEED", round(shared_data.cur_speed, 3),
         # )
-
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
         if controller.did_reach_goal():
             if shared_data.obstacle_avoidance_running:
                 shared_data.mutex.release()
@@ -644,8 +685,28 @@ class GoalState(State):
         elif shared_data.found_obj_flag:
             print(shared_data.obj_cX, shared_data.found_obj_flag)
 
+        # don't flash green when returning via heartbeat, just sit in this loop til new pts
+        if shared_data.go_to_heartbeat:
+            shared_data.mutex.release()
+            return
+
         #print("We got to the bottle cuz it was big enough on screen")
         shared_data.cur_state_publisher.publish("goal_reached")
+
+        # we in goalstate but heartbeat has passed
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            # lazy solution is wait 15 seconds
+            wait_time = time() + 15
+            while(wait_time - time() > 0):
+                pass # no op, this can definitely be improved this is just busy waiting
+            shared_data.go_to_heartbeat = False
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
+
+        # add this goal state position if we have recieved heartbeat
+        if shared_data.last_heartbeat_time - time() < 30:
+                shared_data.last_heartbeat_pos.append(shared_data.cur_position)        
+
         shared_data.mutex.release()
 
     def step(self) -> State:
@@ -682,6 +743,10 @@ class SpinState(State):
         vel_msg = Float64MultiArray()
         vel_msg.data = [-shared_data.SPIN_SPEED, shared_data.SPIN_SPEED]
         shared_data.auton_publisher.publish(vel_msg)
+
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
 
         if shared_data.found_ar_flag and shared_data.should_look_for_ar:
             shared_data.mutex.release()
@@ -734,7 +799,10 @@ class ForwardSpiralState(State):
 
         #print(f"LEFTWHEEL{vel_msg.data[0]} \
                 #RIGHTWHEEL{vel_msg.data[1]}")
-        
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
+
         if shared_data.found_ar_flag and shared_data.should_look_for_ar:
             shared_data.mutex.release()
             return state_instance.go_to_ar_state
@@ -801,6 +869,9 @@ class BackwardSpiralState(State):
         #      "LEFT WHEEL", round(vel_msg.data[0], 3),
         #      "RIGHT WHEEL", round(vel_msg.data[1], 3),
         # )
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
 
         if shared_data.found_ar_flag and shared_data.should_look_for_ar:
             shared_data.mutex.release()
@@ -830,6 +901,16 @@ class BackwardSpiralState(State):
         shared_data.mutex.release()
         return state_instance.backward_spiral_state
 
+class HeartbeatState(State):
+    def on_enter(self):
+        print("Entering Heartbeat State")
+        shared_data.mutex.acquire()
+        shared_data.start_time = time()
+        shared_data.new_waypoints = [shared_data.last_heartbeat_pos[-1]]
+        shared_data.new_waypoints.insert(0, shared_data.cur_position)
+        shared_data.go_to_heartbeat = True
+        shared_data.mutex.release()
+        return state_instance.new_controller_state
 
 class GoToARState(State):
     def on_enter(self):
@@ -862,6 +943,10 @@ class GoToARState(State):
         # if the AR tag is big enough in frame, must be close enough
 
         # if abs(shared_data.ar_size) > shared_data.AR_TOLERANCE and False:
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
+
         if abs(shared_data.ar_size) > shared_data.AR_TOLERANCE:
             vel_msg.data = [0, 0]
             shared_data.auton_publisher.publish(vel_msg)
@@ -909,6 +994,10 @@ class GoToObjectState(State):
 
         # Publish velocity commands
         shared_data.auton_publisher.publish(vel_msg)  # check if we need different publisher here, ADD
+
+        if not shared_data.go_to_heartbeat and shared_data.last_heartbeat - time() > shared_data.HEARTBEAT_TIMEOUT:
+            shared_data.mutex.release()
+            return shared_data.heartbeat_state
 
         # Decide if the object is close enough to stop
         if shared_data.obj_width > shared_data.OBJ_W_TOLERANCE or shared_data.obj_height > shared_data.OBJ_H_TOLERANCE :
@@ -1080,23 +1169,24 @@ class CircleState(State):
 def run_machine():
     rate = rospy.Rate(shared_data.RATE)
 
-    state_instance.start_state = StartState()
+    state_instance.start_state          = StartState()
     state_instance.new_controller_state = NewControllerState()
     state_instance.new_obstacle_avoidance_controller_state = NewObstacleAvoidanceControllerState()
     state_instance.drive_state = DriveState()
     state_instance.obstacle_recovery_state = ObstacleRecoveryState()
     # state_instance.obstacle_avoidance_drive_state           = ObstacleAvoidanceDriveState()
-    state_instance.validating_state = ValidatingState()
-    state_instance.goal_state = GoalState()
-    state_instance.retry_state = RetryState()
-    state_instance.spin_state = SpinState()
-    state_instance.forward_spiral_state = ForwardSpiralState()
+    state_instance.validating_state      = ValidatingState()
+    state_instance.goal_state            = GoalState()
+    state_instance.retry_state           = RetryState()
+    state_instance.spin_state            = SpinState()
+    state_instance.forward_spiral_state  = ForwardSpiralState()
     state_instance.backward_spiral_state = BackwardSpiralState()
     state_instance.go_to_ar_state        = GoToARState()
     state_instance.go_to_obj_state       = GoToObjectState()
     state_instance.align_state           = AlignState()
     state_instance.charge_forward_state  = ChargeForwardState()
     state_instance.circle_state          = CircleState()
+    state_instance.heartbeat_state       = HeartbeatState()
 
     cur_state = state_instance.start_state
     cur_state.on_enter()
