@@ -279,10 +279,12 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints):
         waypoint_list = convert_arr_to_waypoint_list(
             obstacle_avoidence_waypoints.data)
         pos = shared_data.cur_position
+        heading = shared_data.cur_heading
         if pos is None:
             print("pos is none")
+            shared_data.mutex.release()
+            return
         # waypoint_list.insert(0, pos)
-        heading = shared_data.cur_heading
         print("waypoint list")
         print(waypoint_list)
         abs_waypoint_list = [rotate_and_translate_2d(
