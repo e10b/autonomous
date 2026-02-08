@@ -2,10 +2,8 @@
 
 """http://wiki.ros.org/mavros for topic ref"""
 
-import sys
-import functools
-import rospy
-from geometry_msgs.msg import Twist
+import rclpy
+from rclpy.node import Node
 from geometry_msgs.msg import TwistStamped
 from std_msgs.msg import Float64MultiArray, Float64, String, Bool
 from sensor_msgs.msg import NavSatFix
@@ -13,9 +11,9 @@ import math
 from collections import deque
 import numpy as np
 from threading import Lock
-from time import time, sleep
+from time import time
 
-from gps_to_ned import GPS_2_NED
+from .gps_to_ned import GPS_2_NED
 from pure_pursuit.pp import PurePursuit
 from pure_pursuit.spiral_generation import get_spiral
 
@@ -85,6 +83,8 @@ class SharedData():
     mutex = Lock()  # this is for the entire data class
 
     ################ Pub and sub section ################
+    node = None
+    subscriptions = None
     auton_publisher = None
     cur_state_publisher = None
     auton_path_publisher = None
@@ -429,22 +429,6 @@ class StartState(State):
         print("Entering startState...")
         with open('debug.txt', 'w') as f:
             f.write('')
-        shared_data.auton_publisher = rospy.Publisher(
-            shared_data.AUTON_TOPIC_NAME, Float64MultiArray, queue_size=1)
-        shared_data.cur_state_publisher = rospy.Publisher(
-            shared_data.CUR_STATE_TOPIC_NAME, String, queue_size=1)
-        shared_data.auton_path_publisher = rospy.Publisher(
-            shared_data.AUTON_PATH_NAME, Float64MultiArray, queue_size=1)
-
-        rospy.Subscriber(shared_data.GPS_TOPIC_NAME, NavSatFix, on_new_gps_msg)
-        rospy.Subscriber(shared_data.COMPASS_TOPIC_NAME, Float64, on_new_heading_msg)
-        rospy.Subscriber(shared_data.WAYPOINTS_TOPIC_NAME, Float64MultiArray, on_receive_new_gps_waypoint)
-        rospy.Subscriber(shared_data.VELOCITY_TOPIC_NAME, TwistStamped, on_new_velocity_msg)
-        rospy.Subscriber(shared_data.ARTAG_TOPIC_NAME, Float64MultiArray, found_ar_tag)
-        rospy.Subscriber(shared_data.OBJECT_TOPIC_NAME, Float64MultiArray, found_object)
-        rospy.Subscriber(shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME,
-                        Float64MultiArray, on_receive_new_obstacle_avoidance_waypoints)
-        rospy.Subscriber(shared_data.HEARTBEAT_TOPIC, Bool, heartbeat_reset)
 
 
     def step(self):
@@ -1166,52 +1150,124 @@ class CircleState(State):
         return state_instance.circle_state
 
 
-def run_machine():
-    rate = rospy.Rate(shared_data.RATE)
+class AutonomousStateMachine(Node):
+    def __init__(self):
+        super().__init__("autonomous_state_machine")
+        shared_data.node = self
+        shared_data.subscriptions = []
+        self._init_publishers()
+        self._init_subscriptions()
+        self._init_state_machine()
+        self._timer = self.create_timer(1.0 / shared_data.RATE, self._tick)
 
-    state_instance.start_state          = StartState()
-    state_instance.new_controller_state = NewControllerState()
-    state_instance.new_obstacle_avoidance_controller_state = NewObstacleAvoidanceControllerState()
-    state_instance.drive_state = DriveState()
-    state_instance.obstacle_recovery_state = ObstacleRecoveryState()
-    # state_instance.obstacle_avoidance_drive_state           = ObstacleAvoidanceDriveState()
-    state_instance.validating_state      = ValidatingState()
-    state_instance.goal_state            = GoalState()
-    state_instance.retry_state           = RetryState()
-    state_instance.spin_state            = SpinState()
-    state_instance.forward_spiral_state  = ForwardSpiralState()
-    state_instance.backward_spiral_state = BackwardSpiralState()
-    state_instance.go_to_ar_state        = GoToARState()
-    state_instance.go_to_obj_state       = GoToObjectState()
-    state_instance.align_state           = AlignState()
-    state_instance.charge_forward_state  = ChargeForwardState()
-    state_instance.circle_state          = CircleState()
-    state_instance.heartbeat_state       = HeartbeatState()
+    def _init_publishers(self):
+        shared_data.auton_publisher = self.create_publisher(
+            Float64MultiArray, shared_data.AUTON_TOPIC_NAME, 1
+        )
+        shared_data.cur_state_publisher = self.create_publisher(
+            String, shared_data.CUR_STATE_TOPIC_NAME, 1
+        )
+        shared_data.auton_path_publisher = self.create_publisher(
+            Float64MultiArray, shared_data.AUTON_PATH_NAME, 1
+        )
 
-    cur_state = state_instance.start_state
-    cur_state.on_enter()
-    last_state = cur_state
-    # cur_state = state_instance.goal_state
+    def _init_subscriptions(self):
+        shared_data.subscriptions.append(
+            self.create_subscription(
+                NavSatFix, shared_data.GPS_TOPIC_NAME, on_new_gps_msg, 10
+            )
+        )
+        shared_data.subscriptions.append(
+            self.create_subscription(
+                Float64, shared_data.COMPASS_TOPIC_NAME, on_new_heading_msg, 10
+            )
+        )
+        shared_data.subscriptions.append(
+            self.create_subscription(
+                Float64MultiArray,
+                shared_data.WAYPOINTS_TOPIC_NAME,
+                on_receive_new_gps_waypoint,
+                10,
+            )
+        )
+        shared_data.subscriptions.append(
+            self.create_subscription(
+                TwistStamped, shared_data.VELOCITY_TOPIC_NAME, on_new_velocity_msg, 10
+            )
+        )
+        shared_data.subscriptions.append(
+            self.create_subscription(
+                Float64MultiArray, shared_data.ARTAG_TOPIC_NAME, found_ar_tag, 10
+            )
+        )
+        shared_data.subscriptions.append(
+            self.create_subscription(
+                Float64MultiArray, shared_data.OBJECT_TOPIC_NAME, found_object, 10
+            )
+        )
+        shared_data.subscriptions.append(
+            self.create_subscription(
+                Float64MultiArray,
+                shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME,
+                on_receive_new_obstacle_avoidance_waypoints,
+                10,
+            )
+        )
+        shared_data.subscriptions.append(
+            self.create_subscription(
+                Bool, shared_data.HEARTBEAT_TOPIC, heartbeat_reset, 10
+            )
+        )
 
-    while not rospy.is_shutdown():
-        rate.sleep()
-        # if receive new position from ROS, go to new controller state
+    def _init_state_machine(self):
+        state_instance.start_state = StartState()
+        state_instance.new_controller_state = NewControllerState()
+        state_instance.new_obstacle_avoidance_controller_state = (
+            NewObstacleAvoidanceControllerState()
+        )
+        state_instance.drive_state = DriveState()
+        state_instance.obstacle_recovery_state = ObstacleRecoveryState()
+        # state_instance.obstacle_avoidance_drive_state = ObstacleAvoidanceDriveState()
+        state_instance.validating_state = ValidatingState()
+        state_instance.goal_state = GoalState()
+        state_instance.retry_state = RetryState()
+        state_instance.spin_state = SpinState()
+        state_instance.forward_spiral_state = ForwardSpiralState()
+        state_instance.backward_spiral_state = BackwardSpiralState()
+        state_instance.go_to_ar_state = GoToARState()
+        state_instance.go_to_obj_state = GoToObjectState()
+        state_instance.align_state = AlignState()
+        state_instance.charge_forward_state = ChargeForwardState()
+        state_instance.circle_state = CircleState()
+        state_instance.heartbeat_state = HeartbeatState()
+
+        self.cur_state = state_instance.start_state
+        self.cur_state.on_enter()
+        self.last_state = self.cur_state
+
+    def _tick(self):
         if shared_data.new_waypoints_flag:
             print("user sent more stuff!")
-            cur_state = state_instance.new_controller_state
-        if last_state != cur_state:
-            last_state.on_exit()
-            last_state = cur_state
-
-            cur_state.on_enter()
+            self.cur_state = state_instance.new_controller_state
+        if self.last_state != self.cur_state:
+            self.last_state.on_exit()
+            self.last_state = self.cur_state
+            self.cur_state.on_enter()
         else:
-            last_state = cur_state
-            cur_state = cur_state.step()
+            self.last_state = self.cur_state
+            self.cur_state = self.cur_state.step()
 
-        # print(time(), shared_data.latest_ar_found)
         if time() - shared_data.latest_ar_found > 2:
             shared_data.found_ar_flag = False
 
-if __name__ == "__main__":
-    rospy.init_node("purepursuit")
-    run_machine()
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = AutonomousStateMachine()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        rclpy.shutdown()
