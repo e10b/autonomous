@@ -3,6 +3,8 @@ import time
 from std_msgs.msg import Float64MultiArray
 from utils import clamp
 
+AR_DRIVE_SPEED = 1.0
+
 class GoToARState(State):
     def __init__(self, shared_data, state_instance):
         super().__init__()
@@ -24,8 +26,8 @@ class GoToARState(State):
         off_center = self.shared_data.ar_cX - 0.5
         print(off_center, self.shared_data.ar_size)
         vel_msg.data = [
-            self.shared_data.AR_DRIVE_SPEED + off_center * 1.5,
-            self.shared_data.AR_DRIVE_SPEED - off_center * 1.5,
+            AR_DRIVE_SPEED + off_center * 1.5,
+            AR_DRIVE_SPEED - off_center * 1.5,
         ]
 
         for i in range(len(vel_msg.data)):

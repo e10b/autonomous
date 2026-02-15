@@ -2,6 +2,9 @@ from state_class import State
 from time import time
 from std_msgs.msg import Float64MultiArray
 
+OBJ_DRIVE_SPEED = 0.8
+OBJ_TIMEOUT = 5
+
 class GoToObjectState(State):
     def __init__(self, shared_data, state_instance):
         super().__init__()
@@ -22,8 +25,8 @@ class GoToObjectState(State):
         print(off_center, self.shared_data.obj_width, self.shared_data.obj_height)
         vel_msg = Float64MultiArray()
         vel_msg.data = [
-            self.shared_data.OBJ_DRIVE_SPEED + off_center * 1.5,
-            self.shared_data.OBJ_DRIVE_SPEED - off_center * 1.5,
+            OBJ_DRIVE_SPEED + off_center * 1.5,
+            OBJ_DRIVE_SPEED - off_center * 1.5,
         ]
 
         #steering_adjustment = off_center * self.shared_data.STEERING_CONST
@@ -48,7 +51,7 @@ class GoToObjectState(State):
             self.shared_data.mutex.release()
             return self.state_instance.goal_state  # Transition to goal state
         
-        if time() - self.shared_data.start_time > self.shared_data.OBJ_TIMEOUT:
+        if time() - self.shared_data.start_time > OBJ_TIMEOUT:
             self.shared_data.mutex.release()
             return self.state_instance.spin_state
 

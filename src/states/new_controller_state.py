@@ -4,6 +4,8 @@ import numpy as np
 import math
 from std_msgs.msg import Float64MultiArray
 
+TOLERANCE = 2
+
 class NewControllerState(State):
     def __init__(self, shared_data, state_instance):
         super().__init__()
@@ -21,7 +23,7 @@ class NewControllerState(State):
             self.shared_data.new_waypoints,
             self.shared_data.cur_heading,
             next_orientation,
-            tolerance=self.shared_data.TOLERANCE
+            tolerance=TOLERANCE
         )
         print("PurePursuit controller initialized with new waypoints.")
         self.shared_data.new_waypoints_flag = False  # Invalidate the flag so don't enter again

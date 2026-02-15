@@ -37,10 +37,6 @@ class CircleState(State):
             self.done_perp = True
         print(f"Spinning 270 deg for {round(time()-self.shared_data.start_time, 3)} seconds")
 
-        # vel_msg.data = [
-        #     shared_data.MAX_AUTON_SPEED/2 - shared_data.SPIN_SPEED/2,
-        #     shared_data.MAX_AUTON_SPEED/2 + shared_data.SPIN_SPEED/2,
-        # ]
         vel_msg.data = [
             0.5,
             2,

@@ -11,14 +11,13 @@ from std_msgs.msg import Float64MultiArray, Float64, String, Bool
 from sensor_msgs.msg import NavSatFix
 import math
 from collections import deque
-import numpy as np
 from threading import Lock
 from time import time
 from utils import *
 
 from gps_to_ned import GPS_2_NED
-from pure_pursuit.pp import PurePursuit
-from pure_pursuit.spiral_generation import get_spiral
+from pp import PurePursuit
+from spiral_generation import get_spiral
 
 from states.state_class import State
 from states.state_class import StateInstance
@@ -34,32 +33,28 @@ from states.obstacle_recovery_state import ObstacleRecoveryState
 from states.validating_state import ValidatingState
 from states.heartbeat_state import HeartbeatState
 from states.go_to_object_state import GoToObjectState
-from states.charge_forward_state import ChargeForwardState
 from states.spin_state import SpinState
 from states.backward_spiral_state import BackwardSpiralState
 from states.go_to_ar_state import GoToARState
-from states.align_state import AlignState
 from states.circle_state import CircleState
+
+RATE = 30
 
 class SharedData():
     ################ Constant section ################
-    RATE = 30
-    TOLERANCE = 2
+    
+    
     HIST_POSE_LEN = 60 # used to be 100 but decreased to 60 for time (either is arbitrary)
     AUTON_SPEED = 1.5
-    AR_DRIVE_SPEED = 1.0
-    OBJ_DRIVE_SPEED = 0.8
     MAX_AUTON_SPEED = 3
     SPIN_SPEED = 1.0
     STEERING_CONST = 4.5
-    DRIVE_TIMEOUT = 30
     SPIRAL_RADIUS = 20
     OBJ_SPIRAL_RADIUS = 11
     SPIRAL_COILS = 4
     OBJ_SPIRAL_COILS = 8
-    OBJ_TIMEOUT = 5
+    
     AR_TIMEOUT = 20
-    # OBJ_TIMEOUT = 20
     SPIRAL_TIMEOUT = 300
     OBJ_SPIRAL_TIMEOUT = 300
     AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
@@ -160,7 +155,7 @@ shared_data = SharedData()  # the global state object
 state_instance = StateInstance()
 
 def run_machine():
-    rate = rospy.Rate(shared_data.RATE)
+    rate = rospy.Rate(RATE)
 
     state_instance.start_state          = StartState(shared_data, state_instance)
     state_instance.new_controller_state = NewControllerState(shared_data, state_instance)
@@ -176,8 +171,6 @@ def run_machine():
     state_instance.backward_spiral_state = BackwardSpiralState(shared_data, state_instance)
     state_instance.go_to_ar_state        = GoToARState(shared_data, state_instance)
     state_instance.go_to_obj_state       = GoToObjectState(shared_data, state_instance)
-    state_instance.align_state           = AlignState(shared_data, state_instance)
-    state_instance.charge_forward_state  = ChargeForwardState(shared_data, state_instance)
     state_instance.circle_state          = CircleState(shared_data, state_instance)
     state_instance.heartbeat_state       = HeartbeatState(shared_data, state_instance)
 
