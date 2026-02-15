@@ -13,7 +13,7 @@ import math
 from collections import deque
 import numpy as np
 from threading import Lock
-from time import time, sleep
+from time import time
 from utils import *
 
 from gps_to_ned import GPS_2_NED
