@@ -1,23 +1,32 @@
-from geographiclib.geodesic import Geodesic
-from geographiclib.localcoordinates import LocalCartesian
-from geographiclib import utm
+from pyproj import Transformer
+import utm
 
 
-class GPS2NED:
+class GPS_2_NED:
     def __init__(self, olat, olon, oalt=0.0):
         self.olat = olat
         self.olon = olon
         self.oalt = oalt
 
-        # Local ENU frame centered at origin
-        self.local_cart = LocalCartesian(olat, olon, oalt)
+        # Create ENU transformer centered at origin
+        self.transformer_to_local = Transformer.from_crs(
+            "epsg:4979",  # WGS84 lat/lon/alt
+            f"+proj=tmerc +lat_0={olat} +lon_0={olon} +k=1 +x_0=0 +y_0=0 +ellps=WGS84",
+            always_xy=True,
+        )
+
+        self.transformer_to_gps = Transformer.from_crs(
+            f"+proj=tmerc +lat_0={olat} +lon_0={olon} +k=1 +x_0=0 +y_0=0 +ellps=WGS84",
+            "epsg:4979",
+            always_xy=True,
+        )
 
     def gps_to_xy(self, lat, lon, alt=0.0):
-        x, y, z = self.local_cart.Forward(lat, lon, alt)
+        x, y = self.transformer_to_local.transform(lon, lat)
         return x, y
 
-    def xy_to_gps(self, x, y, z=0.0):
-        lat, lon, alt = self.local_cart.Reverse(x, y, z)
+    def xy_to_gps(self, x, y):
+        lon, lat = self.transformer_to_gps.transform(x, y)
         return lat, lon
 
     def gps_to_utm(self, lat, lon):

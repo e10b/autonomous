@@ -14,7 +14,11 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
     ],
-    install_requires=['setuptools'],
+    install_requires=[
+        'setuptools',
+        'pyproj',
+        'utm',
+    ],
     zip_safe=True,
     maintainer='yonder',
     maintainer_email='arsureshkumar@ucsd.edu',

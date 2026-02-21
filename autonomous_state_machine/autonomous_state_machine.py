@@ -11,9 +11,8 @@ import math
 from collections import deque
 from threading import Lock
 from time import time
-from utils import *
 
-from gps_to_ned import GPS_2_NED
+from autonomous_state_machine.gps_to_ned import GPS_2_NED
 from pp import PurePursuit
 from spiral_generation import get_spiral
 
