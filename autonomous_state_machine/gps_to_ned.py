@@ -1,27 +1,25 @@
-# Import geonav tranformation module
-import geonav_transform.geonav_conversions as gc
-# reload(gc)
-# Import AlvinXY transformation module
-import alvinxy.alvinxy as axy
-# reload(axy)
+from geographiclib.geodesic import Geodesic
+from geographiclib.localcoordinates import LocalCartesian
+from geographiclib import utm
 
-class GPS_2_NED():
-  def __init__(self, olat, olon):
-    self.olat = olat
-    self.olon = olon
 
-  def gps_to_xy(self, lat, lon):
-    xg2, yg2 = gc.ll2xy(lat, lon, self.olat, self.olon)
-    return xg2, yg2
+class GPS2NED:
+    def __init__(self, olat, olon, oalt=0.0):
+        self.olat = olat
+        self.olon = olon
+        self.oalt = oalt
 
-  def xy_to_gps(self, x, y):
-    lat, lon = gc.xy2ll(x, y, self.olat, self.olon)
-    return lat, lon
+        # Local ENU frame centered at origin
+        self.local_cart = LocalCartesian(olat, olon, oalt)
 
-  def gps_to_utm(self, lat, lon):
-    utmy, utmx, utmzone = gc.LLtoUTM(lat, lon)
-    return utmy, utmx, utmzone
+    def gps_to_xy(self, lat, lon, alt=0.0):
+        x, y, z = self.local_cart.Forward(lat, lon, alt)
+        return x, y
 
-  def gpt_to_axy(self, lat, lon):
-    xa, ya = axy.ll2xy(lat, lon, self.olat, self.olon)
-    return xa, ya
+    def xy_to_gps(self, x, y, z=0.0):
+        lat, lon, alt = self.local_cart.Reverse(x, y, z)
+        return lat, lon
+
+    def gps_to_utm(self, lat, lon):
+        utm_x, utm_y, zone_number, zone_letter = utm.from_latlon(lat, lon)
+        return utm_y, utm_x, f"{zone_number}{zone_letter}"
