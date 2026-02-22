@@ -1,6 +1,11 @@
+#!/usr/bin/env python3
+
+# import sys
+# print("Python version", sys.version)
+# print("Python executable", sys.executable)
+
 from pyproj import Transformer
 import utm
-
 
 class GPS_2_NED:
     def __init__(self, olat, olon, oalt=0.0):

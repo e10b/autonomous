@@ -3,7 +3,6 @@ from scipy.interpolate import CubicSpline
 from scipy.misc import derivative
 from scipy.integrate import quad
 from scipy.spatial import KDTree
-import matplotlib.pyplot as plt
 
 class PurePursuit():
   def __init__(self, pts, start_ang, end_ang, tolerance=1.5, URC_requirement=3, min_look_ahead=1/2, max_look_ahead=2, fineness=0.01):
@@ -123,25 +122,6 @@ class PurePursuit():
   def build_waypoint_tree(waypoints):
     return KDTree(waypoints)
 
-
-def visualize_path(cur_pose, plt):
-  cur_pt = cur_pose[:2]
-  ang = cur_pose[2]
-
-  r = pp.calc_steering(cur_pose)
-  if r == float("inf"): return
-  cplx = np.complex(np.cos(cur_pose[2]), np.sin(cur_pose[2]))*np.complex(0, 1)
-  normal = np.array([np.real(cplx), np.imag(cplx)])
-  vec = normal/np.linalg.norm(normal)*r
-  center = cur_pt+vec
-
-  plt.scatter(*pp.next_point(cur_pt)) # target point
-  
-  plt.quiver(*cur_pt, np.cos(ang), np.sin(ang)) # current pose
-  # plt.quiver(*cur_pt, *vec) # normal vector
-  
-  plt.gca().add_patch(plt.Circle(center, r, alpha=0.1))
-
 def generate_spiral(center, theta_max, sparseness):
   pts = [center]
   thetas = np.arange(0, theta_max, 0.5)
@@ -154,16 +134,4 @@ def generate_spiral(center, theta_max, sparseness):
 if __name__ == "__main__":
   """ test client """
   pts = generate_spiral(np.array([0, 0]), 8*np.pi, 0.7)
-
   pp = PurePursuit(pts, start_ang=0, end_ang=1)
-  plt.plot(pp.waypoints[:,0],pp.waypoints[:,1]) # entire path
-
-  cur_pose = (2, 21, 3)
-  visualize_path(cur_pose, plt)
-  cur_pose = (-23, -1, 0)
-  visualize_path(cur_pose, plt)
-
-  plt.scatter(*pp.waypoints[0])
-  plt.scatter(*pp.waypoints[-1])
-  plt.gca().set_aspect("equal")
-  plt.show()

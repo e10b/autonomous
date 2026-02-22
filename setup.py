@@ -14,11 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
     ],
-    install_requires=[
-        'setuptools',
-        'pyproj',
-        'utm',
-    ],
+    install_requires=['setuptools', 'pyproj', 'scipy', 'utm', 'numpy'],
     zip_safe=True,
     maintainer='yonder',
     maintainer_email='arsureshkumar@ucsd.edu',
@@ -31,7 +27,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'autonomous_state_machine = autonomous_state_machine.state:main',
+            'autonomous_state_machine = autonomous_state_machine.autonomous_state_machine:main',
         ],
     },
 )

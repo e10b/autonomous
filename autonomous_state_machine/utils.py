@@ -1,6 +1,6 @@
 import math
 import time
-from gps_to_ned import GPS_2_NED
+from autonomous_state_machine.gps_to_ned import GPS_2_NED
 
 def on_new_gps_msg(msg, shared_data):
     # Acquire the mutex to ensure thread-safe access to shared_data
