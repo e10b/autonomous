@@ -10,8 +10,6 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <depend>rclpy</depend>
-  <depend>pure_pursuit</depend>
-  <depend>geonav_transform</depend>
 
   <export>
     <build_type>ament_python</build_type>
