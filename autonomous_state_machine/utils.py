@@ -188,6 +188,8 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints, sh
         heading = shared_data.cur_heading
         print("Received obstacle avoidance waypoint list:", waypoint_list)
         # Transform waypoints from robot-relative to global coordinates
+        if pos is None or heading is None:
+            return
         abs_waypoint_list = [rotate_and_translate_2d(
             *pt, *pos, heading) for pt in waypoint_list]
         print("Current position:", pos, "Current heading:", heading)

@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.interpolate import CubicSpline
-from scipy.misc import derivative
+# from scipy.misc import derivative
+from scipy.differentiate import derivative
 from scipy.integrate import quad
 from scipy.spatial import KDTree
 
@@ -92,6 +93,10 @@ class PurePursuit():
 
     cs = CubicSpline(n, pts, bc_type=boundry_condition)
     return cs # cubic spline function on [0,1]
+
+  @staticmethod
+  def derivative(func, x, dx=1e-6):
+    return (func(x + dx) - func(x - dx)) / (2 * dx)
   
   @staticmethod
   def curvature(s, t):
