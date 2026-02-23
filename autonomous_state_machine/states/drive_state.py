@@ -1,5 +1,5 @@
 from autonomous_state_machine.states.state_class import State
-from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import TwistStamped
 from time import time
 from autonomous_state_machine.utils import clamp
 
@@ -25,40 +25,48 @@ class DriveState(State):
                     self.shared_data.cur_position[1], self.shared_data.cur_heading]
         steering_radius = controller.calc_steering(cur_pose)
         # Calculate steering output based on current speed and steering radius
-        vel_msg = Float64MultiArray()
         steering_output = self.shared_data.STEERING_CONST * \
                 self.shared_data.cur_speed / steering_radius
         # For sharp turns in obstacle avoidance, set wheel speeds accordingly
         if self.shared_data.obstacle_avoidance_running and abs(steering_radius) < 3:
-            vel_msg.data = [-steering_output/abs(steering_output)*self.shared_data.AUTON_SPEED,
-                            steering_output/abs(steering_output)*self.shared_data.AUTON_SPEED]
+            left = -steering_output/abs(steering_output)*self.shared_data.AUTON_SPEED
+            right = steering_output/abs(steering_output)*self.shared_data.AUTON_SPEED
         else:
             # Normal driving: adjust left/right wheel speeds
-            vel_msg.data = [self.shared_data.AUTON_SPEED - steering_output,
-                            self.shared_data.AUTON_SPEED + steering_output]
+            left = self.shared_data.AUTON_SPEED - steering_output
+            right = self.shared_data.AUTON_SPEED + steering_output
         # Stop if new obstacle avoidance waypoints are set
         if self.shared_data.new_obstacle_avoidance_waypoints_flag:
-            vel_msg.data = [0, 0]
+            left = 0
+            right = 0
         # Clamp wheel speeds and print debug info
-        for i in range(len(vel_msg.data)):
-            vel_msg.data[i] = clamp(
-                vel_msg.data[i], -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            print("heading", self.shared_data.cur_heading, "pos", self.shared_data.cur_position, 
-                "next_pt", controller.waypoints[controller.look_ahead_point_index])  # Print current heading, position, and next waypoint
+        left = clamp(left, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+        right = clamp(right, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+        print("heading", self.shared_data.cur_heading, "pos", self.shared_data.cur_position, 
+            "next_pt", controller.waypoints[controller.look_ahead_point_index])  # Print current heading, position, and next waypoint
         # Publish velocity message to robot
+        vel_msg = TwistStamped()
+        vel_msg.twist.linear.x = left
+        vel_msg.twist.linear.y = right
         self.shared_data.auton_publisher.publish(vel_msg)
+        if self.shared_data.new_waypoints and len(self.shared_data.new_waypoints) > 0:
+            fin_pos_x = round(self.shared_data.new_waypoints[-1][0], 3)
+            fin_pos_y = round(self.shared_data.new_waypoints[-1][1], 3)
+        else:
+            fin_pos_x = "N/A"
+            fin_pos_y = "N/A"
         print(
             "CURR POS", round(self.shared_data.cur_position[0], 3), round(self.shared_data.cur_position[1], 3),
-            "FIN POS", round(self.shared_data.new_waypoints[-1][0], 3), round(self.shared_data.new_waypoints[-1][1], 3),
-            "LEFT WHEEL", round(vel_msg.data[0], 3),
-            "RIGHT WHEEL", round(vel_msg.data[1], 3),
+            "FIN POS", fin_pos_x, fin_pos_y,
+            "LEFT WHEEL", round(vel_msg.twist.linear.x, 3),
+            "RIGHT WHEEL", round(vel_msg.twist.linear.y, 3),
             "CUR_SPEED", round(self.shared_data.cur_speed, 3),
         )
         # Check for heartbeat timeout
-        if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
-            print("Heartbeat timeout detected, switching to heartbeat_state")  # Print heartbeat timeout
-            self.shared_data.mutex.release()
-            return self.shared_data.heartbeat_state
+        # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
+        #     print("Heartbeat timeout detected, switching to heartbeat_state")  # Print heartbeat timeout
+        #     self.shared_data.mutex.release()
+        #     return self.shared_data.heartbeat_state
         # Check if goal is reached
         if controller.did_reach_goal():
             print("Goal reached!")  # Print when goal is reached
