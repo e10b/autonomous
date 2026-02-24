@@ -1,5 +1,5 @@
 from autonomous_state_machine.states.state_class import State
-from geometry_msgs.msg import TwistStamped
+from std_msgs.msg import Float64MultiArray
 from time import time
 from autonomous_state_machine.utils import clamp
 
@@ -45,9 +45,8 @@ class DriveState(State):
         print("heading", self.shared_data.cur_heading, "pos", self.shared_data.cur_position, 
             "next_pt", controller.waypoints[controller.look_ahead_point_index])  # Print current heading, position, and next waypoint
         # Publish velocity message to robot
-        vel_msg = TwistStamped()
-        vel_msg.twist.linear.x = left
-        vel_msg.twist.linear.y = right
+        vel_msg = Float64MultiArray()
+        vel_msg.data = [left, right]
         self.shared_data.auton_publisher.publish(vel_msg)
         if self.shared_data.new_waypoints and len(self.shared_data.new_waypoints) > 0:
             fin_pos_x = round(self.shared_data.new_waypoints[-1][0], 3)
@@ -58,8 +57,8 @@ class DriveState(State):
         print(
             "CURR POS", round(self.shared_data.cur_position[0], 3), round(self.shared_data.cur_position[1], 3),
             "FIN POS", fin_pos_x, fin_pos_y,
-            "LEFT WHEEL", round(vel_msg.twist.linear.x, 3),
-            "RIGHT WHEEL", round(vel_msg.twist.linear.y, 3),
+            "LEFT WHEEL", round(left, 3),
+            "RIGHT WHEEL", round(right, 3),
             "CUR_SPEED", round(self.shared_data.cur_speed, 3),
         )
         # Check for heartbeat timeout
