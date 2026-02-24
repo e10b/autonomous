@@ -1,6 +1,6 @@
 import math
 import pytest
-import state
+from autonomous_state_machine import state
 
 
 def test_convert_arr_to_waypoint_list():
