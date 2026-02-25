@@ -1,6 +1,7 @@
 from autonomous_state_machine.states.state_class import State
 from std_msgs.msg import Float64MultiArray
 from time import time
+import math
 from autonomous_state_machine.utils import clamp
 
 class DriveState(State):
@@ -24,16 +25,37 @@ class DriveState(State):
             controller = self.shared_data.controller
 
         # Get current pose (x, y, heading)
+        # Wrap heading between -pi and pi to avoid large jumps in heading error
+        # For example, 179 and -179 are only 2 degrees apart, but pp would give -358 (so a large spin)
+        heading = self.shared_data.cur_heading
+        heading = math.atan2(math.sin(heading), math.cos(heading))
+        effective_speed = clamp(self.shared_data.cur_speed, 0.0, self.shared_data.MAX_AUTON_SPEED)
+
         cur_pose = [self.shared_data.cur_position[0],
-                    self.shared_data.cur_position[1], self.shared_data.cur_heading]
+                    self.shared_data.cur_position[1], heading]
         steering_radius = controller.calc_steering(cur_pose)
-        # Calculate steering output based on current speed and steering radius
-        steering_output = self.shared_data.STEERING_CONST * \
-                self.shared_data.cur_speed / steering_radius
+        
+        # adds steering clamp to prevent small/irrelevant changes from causing a rover spin
+        if not steering_radius or abs(steering_radius) < 1e-6:
+            steering_output = 0.0
+        else:
+            # Calculate steering output based on current speed and steering radius - previous code before the clamp
+            steering_output = self.shared_data.STEERING_CONST * \
+                    effective_speed / steering_radius
+
+        # prevents extremely fast steering, which could also cause o-drive issues -> change this if o-drives keep failing
+        max_steer = self.shared_data.AUTON_SPEED * 0.9 
+        # clamps values to prevent steering output from being unreasonable
+        steering_output = clamp(steering_output, -max_steer, max_steer)
         # For sharp turns in obstacle avoidance, set wheel speeds accordingly
         if self.shared_data.obstacle_avoidance_running and abs(steering_radius) < 3:
-            left = -steering_output/abs(steering_output)*self.shared_data.AUTON_SPEED
-            right = steering_output/abs(steering_output)*self.shared_data.AUTON_SPEED
+            # if steering output is negligible, just continue as is
+            if abs(steering_output) < 1e-6:
+                left = self.shared_data.AUTON_SPEED
+                right = self.shared_data.AUTON_SPEED
+            else:
+                left = -steering_output/abs(steering_output)*self.shared_data.AUTON_SPEED
+                right = steering_output/abs(steering_output)*self.shared_data.AUTON_SPEED
         else:
             # Normal driving: adjust left/right wheel speeds
             left = self.shared_data.AUTON_SPEED - steering_output

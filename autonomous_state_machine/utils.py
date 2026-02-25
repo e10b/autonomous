@@ -29,11 +29,10 @@ def on_new_heading_msg(msg, shared_data):
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
 
-    # Convert the incoming heading message to the desired format (radians, adjusted)
-    heading = -(msg.data - 90) # Use the east as center and flip
-    if heading > 180:
-        heading -= 360
-    shared_data.cur_heading = heading * math.pi / 180
+    # Convert compass heading (0=N, CW+) to math heading (0=E, CCW+) and normalize.
+    heading_deg = 90.0 - float(msg.data)
+    heading_deg = ((heading_deg + 180.0) % 360.0) - 180.0
+    shared_data.cur_heading = heading_deg * math.pi / 180.0
     # Print the updated heading for debugging
     print(f"Updated heading: {shared_data.cur_heading} radians")
 
