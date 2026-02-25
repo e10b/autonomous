@@ -17,6 +17,9 @@ class NewObstacleAvoidanceControllerState(State):
         # Invalidate the flag so we don't enter again
         self.shared_data.new_obstacle_avoidance_waypoints_flag = False
 
+        if len(self.shared_data.obstacle_avoidance_new_waypoints) < 2:
+            return
+
         # Calculate the difference between the last two waypoints
         diff = np.array(self.shared_data.obstacle_avoidance_new_waypoints[-1]) - np.array(
             self.shared_data.obstacle_avoidance_new_waypoints[-2])

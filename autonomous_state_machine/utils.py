@@ -6,21 +6,20 @@ def on_new_gps_msg(msg, shared_data):
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
 
-    # If the GPS converter is already initialized
-    if shared_data.gps_converter is not None:
-        # Convert the received GPS coordinates to local XY coordinates
-        shared_data.cur_position = shared_data.gps_converter.gps_to_xy(
-            msg.latitude, msg.longitude)
-        # Append the current position and heading to a debug file for logging
+    # If the GPS converter is not initialized, create it using the current GPS coordinates as the origin
+    if shared_data.gps_converter is None:
+        shared_data.gps_converter = GPS_2_NED(msg.latitude, msg.longitude)
+        # Set cur_position using the origin
+        shared_data.cur_position = shared_data.gps_converter.gps_to_xy(msg.latitude, msg.longitude)
+        shared_data.position_history.append(shared_data.cur_position)
         with open("debug.txt", 'a') as f:
             f.write(f"{shared_data.cur_position[0]}, {shared_data.cur_position[1]}, {shared_data.cur_heading}\n")
-        # Add the current position to the position history list
-        shared_data.position_history.append(
-            shared_data.cur_position)
     else:
-        # If the GPS converter is not initialized, create it using the current GPS coordinates as the origin
-        shared_data.gps_converter = GPS_2_NED(
-            msg.latitude, msg.longitude)
+        # Convert the received GPS coordinates to local XY coordinates
+        shared_data.cur_position = shared_data.gps_converter.gps_to_xy(msg.latitude, msg.longitude)
+        with open("debug.txt", 'a') as f:
+            f.write(f"{shared_data.cur_position[0]}, {shared_data.cur_position[1]}, {shared_data.cur_heading}\n")
+        shared_data.position_history.append(shared_data.cur_position)
     # Release the mutex after updating shared_data
     shared_data.mutex.release()
     # Print the current position and heading for debugging

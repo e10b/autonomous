@@ -9,6 +9,7 @@
 from autonomous_state_machine.utils import heartbeat_reset, on_new_gps_msg, on_new_heading_msg, on_receive_new_gps_waypoint, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import TwistStamped
 from std_msgs.msg import Float64MultiArray, Float64, String, Bool
 from sensor_msgs.msg import NavSatFix
@@ -46,7 +47,7 @@ class SharedData():
     ################ Constant section ################
     
     
-    HIST_POSE_LEN = 60 # used to be 100 but decreased to 60 for time (either is arbitrary)
+    HIST_POSE_LEN = 5 # used to be 100 but decreased to 60 for time (either is arbitrary)
     AUTON_SPEED = 1.5
     MAX_AUTON_SPEED = 3
     SPIN_SPEED = 1.0
@@ -77,6 +78,7 @@ class SharedData():
     OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME = "/obstacle_avoidance/path"
     CUR_STATE_TOPIC_NAME = "/set_state"
     AUTON_PATH_NAME      = "/auton_path_display"
+    LED_TOPIC_NAME       = "/led"
 
     ################ One mutex to rule all the following vars ################
     mutex = Lock()  # this is for the entire data class
@@ -155,48 +157,6 @@ class SharedData():
     start_heading = None  # heading stamp to mark when we end spinning
     obstacle_avoidance_controller = None
 
-# def run_machine():
-#     rate = rclpy.Rate(RATE)
-
-#     state_instance.start_state          = StartState(shared_data, state_instance)
-#     state_instance.new_controller_state = NewControllerState(shared_data, state_instance)
-#     state_instance.new_obstacle_avoidance_controller_state = NewObstacleAvoidanceControllerState(shared_data, state_instance)
-#     state_instance.drive_state = DriveState(shared_data, state_instance)
-#     state_instance.obstacle_recovery_state = ObstacleRecoveryState(shared_data, state_instance)
-#     # state_instance.obstacle_avoidance_drive_state           = ObstacleAvoidanceDriveState()
-#     state_instance.validating_state      = ValidatingState(shared_data, state_instance)
-#     state_instance.goal_state            = GoalState(shared_data, state_instance)
-#     state_instance.retry_state           = RetryState(shared_data, state_instance)
-#     state_instance.spin_state            = SpinState(shared_data, state_instance)
-#     state_instance.forward_spiral_state  = ForwardSpiralState(shared_data, state_instance)
-#     state_instance.backward_spiral_state = BackwardSpiralState(shared_data, state_instance)
-#     state_instance.go_to_ar_state        = GoToARState(shared_data, state_instance)
-#     state_instance.go_to_obj_state       = GoToObjectState(shared_data, state_instance)
-#     state_instance.circle_state          = CircleState(shared_data, state_instance)
-#     state_instance.heartbeat_state       = HeartbeatState(shared_data, state_instance)
-
-#     cur_state = state_instance.start_state
-#     cur_state.on_enter()
-#     last_state = cur_state
-#     # cur_state = state_instance.goal_state
-
-#     while not rclpy.is_shutdown():
-#         rate.sleep()
-#         # if receive new position from ROS, go to new controller state
-#         if shared_data.new_waypoints_flag:
-#             print("user sent more stuff!")
-#             self.cur_state = state_instance.new_controller_state
-#         if self.last_state != self.cur_state:
-#             self.last_state.on_exit()
-#             self.last_state = self.cur_state
-#             self.cur_state.on_enter()
-#         else:
-#             self.last_state = self.cur_state
-#             self.cur_state = self.cur_state.step()
-
-#         if time() - shared_data.latest_ar_found > 2:
-#             shared_data.found_ar_flag = False
-
 
 class AutonomousStateMachine(Node):
     def __init__(self):
@@ -217,6 +177,7 @@ class AutonomousStateMachine(Node):
 
         self.timer = self.create_timer(1.0 / RATE, self._tick)
 
+
     def _tick(self):
         if self.shared_data.new_waypoints_flag:
             self.cur_state = self.state_instance.new_controller_state
@@ -233,13 +194,17 @@ class AutonomousStateMachine(Node):
             self.shared_data.found_ar_flag = False
 
     def setup_subscribers(self):
+        qos_profile = QoSProfile(                                                                 reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            durability=QoSDurabilityPolicy.VOLATILE,                                              depth=10
+        )
+
         # Initialize subscribers for all relevant topics
         print("[StartState] Initializing subscribers...")
         
-        self.create_subscription(NavSatFix, self.shared_data.GPS_TOPIC_NAME, lambda msg: on_new_gps_msg(msg, self.shared_data), 10)
-        self.create_subscription(Float64, self.shared_data.COMPASS_TOPIC_NAME, lambda msg: on_new_heading_msg(msg, self.shared_data), 10)
+        self.create_subscription(NavSatFix, self.shared_data.GPS_TOPIC_NAME, lambda msg: on_new_gps_msg(msg, self.shared_data), qos_profile)
+        self.create_subscription(Float64, self.shared_data.COMPASS_TOPIC_NAME, lambda msg: on_new_heading_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(Float64MultiArray, self.shared_data.WAYPOINTS_TOPIC_NAME, lambda msg: on_receive_new_gps_waypoint(msg, self.shared_data), 10)
-        self.create_subscription(TwistStamped, self.shared_data.VELOCITY_TOPIC_NAME, lambda msg: on_new_velocity_msg(msg, self.shared_data), 10)
+        self.create_subscription(TwistStamped, self.shared_data.VELOCITY_TOPIC_NAME, lambda msg: on_new_velocity_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(Float64MultiArray, self.shared_data.ARTAG_TOPIC_NAME, lambda msg: found_ar_tag(msg, self.shared_data), 10)
         self.create_subscription(Float64MultiArray, self.shared_data.OBJECT_TOPIC_NAME, lambda msg: found_object(msg, self.shared_data), 10)
         self.create_subscription(Float64MultiArray, self.shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME, lambda msg: on_receive_new_obstacle_avoidance_waypoints(msg, self.shared_data), 10)
@@ -248,9 +213,10 @@ class AutonomousStateMachine(Node):
 
     def setup_publishers(self):
         print("[StartState] Initializing publishers...")
-        self.shared_data.auton_publisher = self.create_publisher(TwistStamped, self.shared_data.AUTON_TOPIC_NAME, 10)
+        self.shared_data.auton_publisher = self.create_publisher(Float64MultiArray, self.shared_data.AUTON_TOPIC_NAME, 10)
         self.shared_data.cur_state_publisher = self.create_publisher(String, self.shared_data.CUR_STATE_TOPIC_NAME, 10)
         self.shared_data.auton_path_publisher = self.create_publisher(Float64MultiArray, self.shared_data.AUTON_PATH_NAME, 10)
+        self.shared_data.led_publisher = self.create_publisher(Float64MultiArray, self.shared_data.LED_TOPIC_NAME, 10)
         print("[StartState] Publisher initialization complete.")
 
     def build_states(self):
@@ -281,3 +247,6 @@ def main(args=None):
     finally:
         node.destroy_node()
         rclpy.shutdown()
+
+if __name__ == "__main__":
+    main()

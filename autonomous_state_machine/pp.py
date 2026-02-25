@@ -1,14 +1,14 @@
 import numpy as np
 from scipy.interpolate import CubicSpline
-# from scipy.misc import derivative
 from scipy.differentiate import derivative
 from scipy.integrate import quad
 from scipy.spatial import KDTree
 
+
 class PurePursuit():
   def __init__(self, pts, start_ang, end_ang, tolerance=1.5, URC_requirement=3, min_look_ahead=1/2, max_look_ahead=2, fineness=0.01):
-    self.user_pts = pts
-    self.user_unreached_pts = pts
+    self.user_pts = list(pts)
+    self.user_unreached_pts = list(pts)
     self.final = np.array(pts[-1])
     self.path = self.generate_path(pts, [start_ang, end_ang])
     self.waypoints = self.get_waypoints(self.path, fineness)
@@ -28,7 +28,7 @@ class PurePursuit():
 
   def did_reach_goal(self):
     return self.reached_goal
-  
+
   def check_should_redo_goal(self, cur_pose):
     cur_pt = cur_pose[:2]
     if np.linalg.norm(self.final-cur_pt) >= self.URC_requirement:
@@ -50,10 +50,14 @@ class PurePursuit():
     # may be current point if not moved far enough
     for idx in range(self.look_ahead_point_index, self.num_waypoints):
       # if point looking at is not reached yet then unreach it
-      if (self.distance(self.waypoints[idx], self.user_unreached_pts[0]) > self.look_ahead_distance):
-        self.user_unreached_pts.pop(0)
-      if (self.distance(self.waypoints[idx], cur_pt) > self.look_ahead_distance):
-        self.look_ahead_point_index = idx
+      if len(self.user_unreached_pts) > 0:
+        if (self.distance(self.waypoints[idx], self.user_unreached_pts[0]) > self.look_ahead_distance):
+          self.user_unreached_pts.pop(0)
+        if (self.distance(self.waypoints[idx], cur_pt) > self.look_ahead_distance):
+          self.look_ahead_point_index = idx
+          break
+      else:
+        print("There are no unreached points")
         break
 
     # not actually closest
@@ -69,7 +73,7 @@ class PurePursuit():
 
     next_pt = self.next_point(cur_pt)
     if next_pt is None: return float("inf") # mean finished. don't steer
-    
+
     if np.linalg.norm(self.final-cur_pt) < self.tolerance:
       self.reached_goal = True
 
@@ -94,15 +98,15 @@ class PurePursuit():
     cs = CubicSpline(n, pts, bc_type=boundry_condition)
     return cs # cubic spline function on [0,1]
 
-  @staticmethod
-  def derivative(func, x, dx=1e-6):
-    return (func(x + dx) - func(x - dx)) / (2 * dx)
-  
+
   @staticmethod
   def curvature(s, t):
-    v = derivative(s, x0=t, dx=1e-3)
-    a = derivative(s, x0=t, n=2, dx=1e-3)
-    return np.linalg.norm(np.cross(v,a)) / np.linalg.norm(v)**3
+    # v = derivative(s, t, order=1)
+    # a = derivative(s, t, order=2)
+    v = s(t, 1)
+    a = s(t, 2)
+    # For 2D, cross product is scalar
+    return np.abs(v[0]*a[1] - v[1]*a[0]) / np.linalg.norm(v)**3
 
   @staticmethod
   def radius(s, t):
@@ -110,17 +114,22 @@ class PurePursuit():
 
   @staticmethod
   def normal_vec(s, n):
-    v = derivative(s, x0=n, dx=1e-3)
-    cplx = np.complex(*v)*np.complex(0, 1)
-    norm = np.array([np.real(cplx), np.imag(cplx)])
-    return norm/np.linalg.norm(norm)
+    # v = derivative(s, n, order=1)
+    v = s(n, 1)
+    # Rotate vector 90 degrees
+    norm = np.array([-v[1], v[0]])
+    return norm / np.linalg.norm(norm)
 
   @staticmethod
   def get_waypoints(s, dist_btw_waypoints):
-    length = quad(lambda t: np.linalg.norm(derivative(s, x0=t, dx=1e-3)), 0, 1)[0]
-    num_segments = length/dist_btw_waypoints
-    fineness = 1/num_segments
-    n = np.arange(0, 1+fineness, fineness)
+    def speed(t):
+        # v = derivative(s, t, order=1)
+        v = s(t, 1)
+        return np.linalg.norm(v)
+    length = quad(speed, 0, 1)[0]
+    num_segments = length / dist_btw_waypoints
+    fineness = 1 / num_segments
+    n = np.arange(0, 1 + fineness, fineness)
     return s(n)
 
   @staticmethod

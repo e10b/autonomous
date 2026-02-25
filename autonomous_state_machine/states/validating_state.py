@@ -1,5 +1,6 @@
 import numpy as np
 from autonomous_state_machine.states.state_class import State
+from std_msgs.msg import Float64MultiArray, String
 
 class ValidatingState(State):
     def __init__(self, shared_data, state_instance):
@@ -10,6 +11,12 @@ class ValidatingState(State):
     def on_enter(self):
         print("Entering validatingState...")
         print("Clearing position_history...")
+
+        # Stop the rover
+        vel_msg_done = Float64MultiArray()
+        vel_msg_done.data = [0, 0]
+        self.shared_data.auton_publisher.publish(vel_msg_done)
+        
         self.shared_data.mutex.acquire()
         self.shared_data.position_history.clear()
         self.shared_data.mutex.release()
@@ -20,6 +27,7 @@ class ValidatingState(State):
         self.shared_data.mutex.acquire()
 
         if len(self.shared_data.position_history) >= self.shared_data.HIST_POSE_LEN:
+            print("verifying current pos")
             self.shared_data.cur_position = list(
                 np.array(self.shared_data.position_history).mean(axis=0))
             self.shared_data.controller.check_should_redo_goal(
