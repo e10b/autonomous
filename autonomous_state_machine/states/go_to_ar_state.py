@@ -1,5 +1,5 @@
 from autonomous_state_machine.states.state_class import State
-import time
+from time import time
 from std_msgs.msg import Float64MultiArray
 from autonomous_state_machine.utils import clamp
 
@@ -33,26 +33,27 @@ class GoToARState(State):
         for i in range(len(vel_msg.data)):
             vel_msg.data[i] = clamp(
                 vel_msg.data[i], -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+       
         self.shared_data.auton_publisher.publish(vel_msg)
 
-        # print(f"LEFT WHEEL: {vel_msg.data[0]} \
-        #        RIGHT WHEEL: {vel_msg.data[1]}")
+        print(f"LEFT WHEEL: {vel_msg.data[0]} \
+               RIGHT WHEEL: {vel_msg.data[1]}")
 
         # if the AR tag is big enough in frame, must be close enough
 
         # if abs(shared_data.ar_size) > shared_data.AR_TOLERANCE and False:
-        if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
-            self.shared_data.mutex.release()
-            return self.shared_data.heartbeat_state
+        # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
+        #     self.shared_data.mutex.release()
+        #     return self.shared_data.heartbeat_state
 
         if abs(self.shared_data.ar_size) > self.shared_data.AR_TOLERANCE:
             vel_msg.data = [0, 0]
             self.shared_data.auton_publisher.publish(vel_msg)
             self.shared_data.found_ar_flag = False
-            if self.shared_data.do_gate_task:
-                self.shared_data.do_gate_task = False
-                self.shared_data.mutex.release()
-                return self.state_instance.circle_state
+            # if self.shared_data.do_gate_task:
+            #     self.shared_data.do_gate_task = False
+            #     self.shared_data.mutex.release()
+            #     return self.state_instance.circle_state
 
             self.shared_data.mutex.release()
             return self.state_instance.goal_state

@@ -45,16 +45,20 @@ class ForwardSpiralState(State):
 
         #print(f"LEFTWHEEL{vel_msg.data[0]} \
                 #RIGHTWHEEL{vel_msg.data[1]}")
-        if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
-            self.shared_data.mutex.release()
-            return self.shared_data.heartbeat_state
+        # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
+        #     self.shared_data.mutex.release()
+        #     return self.shared_data.heartbeat_state
+
+        print(f"found flag: {self.shared_data.found_ar_flag}, should look: {self.shared_data.should_look_for_ar}")
 
         if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
             self.shared_data.mutex.release()
+            print("Going to AR state!")
             return self.state_instance.go_to_ar_state
 
         if self.shared_data.found_obj_flag and self.shared_data.should_look_for_obj:
             self.shared_data.mutex.release()
+            print("Going to object state!")
             return self.state_instance.go_to_obj_state
 
         if self.shared_data.controller.did_reach_goal():

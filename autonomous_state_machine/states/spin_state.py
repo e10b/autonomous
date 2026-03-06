@@ -1,5 +1,6 @@
 from autonomous_state_machine.states.state_class import State
-import time
+from time import time
+from std_msgs.msg import Float64MultiArray
 
 class SpinState(State):
     def __init__(self, shared_data, state_instance):
@@ -19,13 +20,13 @@ class SpinState(State):
         self.shared_data.mutex.acquire()
 
         print(f"spinning for {round(time()-self.shared_data.start_time)} seconds")
-        vel_msg = self.Float64MultiArray()
+        vel_msg = Float64MultiArray()
         vel_msg.data = [-self.shared_data.SPIN_SPEED, self.shared_data.SPIN_SPEED]
         self.shared_data.auton_publisher.publish(vel_msg)
 
-        if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
-            self.shared_data.mutex.release()
-            return self.shared_data.heartbeat_state
+        # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
+        #     self.shared_data.mutex.release()
+        #     return self.shared_data.heartbeat_state
 
         if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
             self.shared_data.mutex.release()

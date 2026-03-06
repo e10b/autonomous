@@ -1,5 +1,5 @@
 import math
-import time
+from time import time
 from autonomous_state_machine.gps_to_ned import GPS_2_NED
 
 def on_new_gps_msg(msg, shared_data):
@@ -20,6 +20,7 @@ def on_new_gps_msg(msg, shared_data):
         with open("debug.txt", 'a') as f:
             f.write(f"{shared_data.cur_position[0]}, {shared_data.cur_position[1]}, {shared_data.cur_heading}\n")
         shared_data.position_history.append(shared_data.cur_position)
+    shared_data.gps_ready = True
     # Release the mutex after updating shared_data
     shared_data.mutex.release()
     # Print the current position and heading for debugging
@@ -29,11 +30,11 @@ def on_new_heading_msg(msg, shared_data):
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
 
-    # Convert the incoming heading message to the desired format (radians, adjusted)
-    heading = -(msg.data - 90) # Use the east as center and flip
-    if heading > 180:
-        heading -= 360
-    shared_data.cur_heading = heading * math.pi / 180
+    # Convert compass heading (0=N, CW+) to math heading (0=E, CCW+) and normalize.
+    heading_deg = 90.0 - float(msg.data)
+    heading_deg = ((heading_deg + 180.0) % 360.0) - 180.0
+    shared_data.cur_heading = heading_deg * math.pi / 180.0
+    shared_data.heading_ready = True
     # Print the updated heading for debugging
     print(f"Updated heading: {shared_data.cur_heading} radians")
 
@@ -117,7 +118,7 @@ def found_ar_tag(msg, shared_data):
         [shared_data.ar_cX, shared_data.ar_cY,
         shared_data.ar_size, shared_data.ar_id] = msg.data
         shared_data.found_ar_flag = True
-        shared_data.latest_ar_found = time.time()
+        shared_data.latest_ar_found = time()
         print(f"Found primary AR tag: id={shared_data.ar_id}, cX={shared_data.ar_cX}, cY={shared_data.ar_cY}, size={shared_data.ar_size}")
 
     # Check if the detected AR tag matches the secondary target ID
@@ -173,46 +174,59 @@ def convert_arr_to_waypoint_list(arr):
 def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints, shared_data):
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
+    if not shared_data.gps_ready or not shared_data.heading_ready:
+        shared_data.mutex.release()
+        return
+    try:
+        # If obstacle avoidance is not currently running, process the new waypoints
+        if not shared_data.obstacle_avoidance_running:
+            print("Preparing to avoid obstacle")
+            # Convert the flat array to a list of 2D waypoints
+            waypoint_list = convert_arr_to_waypoint_list(
+                obstacle_avoidence_waypoints.data)
+            
+            if len(waypoint_list) < 2:
+                print("Ignoring obstacle avoidance path: fewer than 2 waypoints")
+                return
 
-    # If obstacle avoidance is not currently running, process the new waypoints
-    if not shared_data.obstacle_avoidance_running:
-        print("Preparing to avoid obstacle")
-        # Convert the flat array to a list of 2D waypoints
-        waypoint_list = convert_arr_to_waypoint_list(
-            obstacle_avoidence_waypoints.data)
-        pos = shared_data.cur_position
-        if pos is None:
-            print("Current position is None")
-        # heading of the robot
-        heading = shared_data.cur_heading
-        print("Received obstacle avoidance waypoint list:", waypoint_list)
-        # Transform waypoints from robot-relative to global coordinates
-        if pos is None or heading is None:
-            return
-        abs_waypoint_list = [rotate_and_translate_2d(
-            *pt, *pos, heading) for pt in waypoint_list]
-        print("Current position:", pos, "Current heading:", heading)
-        print("Transformed (global) obstacle avoidance waypoints:", abs_waypoint_list)
-        # Select every third waypoint starting from the fourth (index 3)
-        shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list[3::3]
-        print("Filtered obstacle avoidance waypoints:", shared_data.obstacle_avoidance_new_waypoints)
+            if all(math.hypot(x,y)<0.05 for x,y in waypoint_list):
+                print("Ignoring obstacle avoidance path: all waypoints are near origin")
+                # return
+            
+            pos = shared_data.cur_position
+            if pos is None:
+                print("Current position is None")
+            # heading of the robot
+            heading = shared_data.cur_heading
+            print("Received obstacle avoidance waypoint list:", waypoint_list)
+            # Transform waypoints from robot-relative to global coordinates
+            if pos is None or heading is None:
+                return
+            abs_waypoint_list = [rotate_and_translate_2d(
+                *pt, *pos, heading) for pt in waypoint_list]
+            print("Current position:", pos, "Current heading:", heading)
+            print("Transformed (global) obstacle avoidance waypoints:", abs_waypoint_list)
+            # Select every third waypoint starting from the fourth (index 3)
+            # shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list[3::3]
+            shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list
+            print("Filtered obstacle avoidance waypoints:", shared_data.obstacle_avoidance_new_waypoints)
 
-        # Set flag indicating new obstacle avoidance waypoints are available
-        shared_data.new_obstacle_avoidance_waypoints_flag = True
+            # Set flag indicating new obstacle avoidance waypoints are available
+            shared_data.new_obstacle_avoidance_waypoints_flag = True
+    finally:
+        # Release the mutex after updating shared_data
+        shared_data.mutex.release()
 
-    # Release the mutex after updating shared_data
-    shared_data.mutex.release()
-
-def heartbeat_reset(msg, shared_data):
-    # Acquire the mutex to ensure thread-safe access to shared_data
-    shared_data.mutex.acquire()
-    # Update the last heartbeat time
-    shared_data.last_heartbeat_time = time()
-    # If last_heartbeat_pos is empty, append the current position
-    if not shared_data.last_heartbeat_pos:
-        shared_data.last_heartbeat_pos.append(shared_data.cur_position)
-    # Release the mutex after updating shared_data
-    shared_data.mutex.release()
+# def heartbeat_reset(msg, shared_data):
+#     # Acquire the mutex to ensure thread-safe access to shared_data
+#     shared_data.mutex.acquire()
+#     # Update the last heartbeat time
+#     shared_data.last_heartbeat_time = time()
+#     # If last_heartbeat_pos is empty, append the current position
+#     if not shared_data.last_heartbeat_pos:
+#         shared_data.last_heartbeat_pos.append(shared_data.cur_position)
+#     # Release the mutex after updating shared_data
+#     shared_data.mutex.release()
 
 def found_object(msg, shared_data):
     # Acquire the mutex to ensure thread-safe access to shared_data
@@ -257,3 +271,4 @@ def reset_ar_data(shared_data):
 
     # Release the mutex after resetting AR data
     shared_data.mutex.release()
+

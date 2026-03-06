@@ -39,9 +39,9 @@ class GoToObjectState(State):
         # Publish velocity commands
         self.shared_data.auton_publisher.publish(vel_msg)  # check if we need different publisher here, ADD
 
-        if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
-            self.shared_data.mutex.release()
-            return self.shared_data.heartbeat_state
+        # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
+        #     self.shared_data.mutex.release()
+        #     return self.shared_data.heartbeat_state
 
         # Decide if the object is close enough to stop
         if self.shared_data.obj_width > self.shared_data.OBJ_W_TOLERANCE or self.shared_data.obj_height > self.shared_data.OBJ_H_TOLERANCE :

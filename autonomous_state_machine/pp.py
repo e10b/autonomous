@@ -1,6 +1,5 @@
 import numpy as np
 from scipy.interpolate import CubicSpline
-from scipy.differentiate import derivative
 from scipy.integrate import quad
 from scipy.spatial import KDTree
 
@@ -45,25 +44,32 @@ class PurePursuit():
 
 
   def next_point(self, cur_pt):
-
-    # find next point outside lookahead
-    # may be current point if not moved far enough
+    # Strategy:
+    # 1) Keep moving forward through waypoints (never jump backward).
+    # 2) Pick the first waypoint farther than lookahead distance from current pose.
+    # 3) If none is far enough, target the final waypoint.
+    #
+    # This avoids the old "unreached list" bookkeeping, which could become empty
+    # early and leave the controller in a bad state.
+    target_idx = self.num_waypoints - 1
     for idx in range(self.look_ahead_point_index, self.num_waypoints):
-      # if point looking at is not reached yet then unreach it
-      if len(self.user_unreached_pts) > 0:
-        if (self.distance(self.waypoints[idx], self.user_unreached_pts[0]) > self.look_ahead_distance):
-          self.user_unreached_pts.pop(0)
-        if (self.distance(self.waypoints[idx], cur_pt) > self.look_ahead_distance):
-          self.look_ahead_point_index = idx
-          break
-      else:
-        print("There are no unreached points")
+      if self.distance(self.waypoints[idx], cur_pt) > self.look_ahead_distance:
+        target_idx = idx
         break
+    self.look_ahead_point_index = target_idx
 
-    # not actually closest
-    curvature_at_cloest = abs(self.curvature(self.path, self.look_ahead_point_index))
-    # print(curvature_at_cloest)
-    self.look_ahead_distance = max(min(self.max_look_ahead, self.max_look_ahead/curvature_at_cloest), self.min_look_ahead)
+    # Convert waypoint index -> spline parameter t in [0, 1] for curvature sampling.
+    # Sampling curvature with raw index is invalid because spline domain is normalized.
+    t = self.look_ahead_point_index / max(self.num_waypoints - 1, 1)
+
+    # Dynamic lookahead: tighter curves -> smaller lookahead, straighter path -> larger.
+    # Floor curvature to avoid division-by-zero explosions on straight segments.
+    curvature_at_cloest = abs(self.curvature(self.path, t))
+    curvature_at_cloest = max(curvature_at_cloest, 1e-6)
+    self.look_ahead_distance = max(
+      min(self.max_look_ahead, self.max_look_ahead / curvature_at_cloest),
+      self.min_look_ahead,
+    )
 
     return self.waypoints[self.look_ahead_point_index]
 
@@ -79,10 +85,17 @@ class PurePursuit():
 
     diff = next_pt-cur_pt
     d = np.linalg.norm(diff)
+    if d < 1e-6: # safety check
+      return float("inf")
+
+    # more safety checks
     des_ang = np.arctan2(diff[1], diff[0])
-    ang_diff = des_ang-cur_ang
-    theta = np.pi/2 - ang_diff
-    r = d / (2*np.cos(theta))
+    ang_diff = np.arctan2(np.sin(des_ang-cur_ang), np.cos(des_ang-cur_ang))
+    sin_ang = np.sin(ang_diff)
+    if abs(sin_ang) < 1e-6:
+      return float("inf")
+
+    r = d / (2 * sin_ang)
     return r # radius of steering
 
   @staticmethod
