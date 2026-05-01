@@ -12,22 +12,32 @@ class ObstacleRecoveryState(State):
         pass
 
     def step(self):
-        new_unreached_pts = []
-        # remove points we "passed"
-        uni = self.shared_data.controller.user_next_index
-        last_reached_pt = np.array(self.shared_data.controller.user_pts[uni-1])
-        user_unreached_pts = self.shared_data.controller.user_pts[uni:]
-        for i, u_pt in enumerate(user_unreached_pts):
-            u_pt = np.array(u_pt)
-            # if we passed the point, mark it as reached
-            if np.dot(u_pt-np.array(self.shared_data.cur_position), u_pt-last_reached_pt) < 0:
-                last_reached_pt = u_pt
-                continue
-            else:
-                new_unreached_pts = user_unreached_pts[i:]
-                break
-        self.shared_data.new_waypoints = new_unreached_pts
-        self.shared_data.new_waypoints.insert(0, self.shared_data.cur_position)
-        # shared_data.new_waypoints_flag = True
+        controller = self.shared_data.controller
+        cur_position = self.shared_data.cur_position
+
+        if controller is None or cur_position is None or not hasattr(controller, "user_pts"):
+            self.shared_data.obstacle_avoidance_running = False
+            return self.state_instance.drive_state
+
+        user_pts = list(controller.user_pts)
+        if len(user_pts) == 0:
+            self.shared_data.obstacle_avoidance_running = False
+            return self.state_instance.drive_state
+
+        cur = np.array(cur_position)
+        closest_idx = int(np.argmin([np.linalg.norm(np.array(pt) - cur) for pt in user_pts]))
+        remaining_pts = user_pts[closest_idx:]
+
+        if len(remaining_pts) == 0:
+            self.shared_data.obstacle_avoidance_running = False
+            return self.state_instance.drive_state
+
+        # Rebuild the main path from current position to remaining user points.
+        if np.linalg.norm(np.array(remaining_pts[0]) - cur) < 1e-6:
+            self.shared_data.new_waypoints = [cur_position] + remaining_pts[1:]
+        else:
+            self.shared_data.new_waypoints = [cur_position] + remaining_pts
+
         self.shared_data.obstacle_avoidance_running = False
         return self.state_instance.new_controller_state
+

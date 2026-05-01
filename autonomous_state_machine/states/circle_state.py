@@ -1,5 +1,5 @@
 from autonomous_state_machine.states.state_class import State
-import time
+from time import time
 from std_msgs.msg import Float64MultiArray
 import math
 

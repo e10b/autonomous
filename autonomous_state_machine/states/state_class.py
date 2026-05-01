@@ -27,4 +27,4 @@ class StateInstance():
     go_to_obj_state         = None
     charge_forward_state    = None
     circle_state            = None
-    heartbeat_state         = None
+    # heartbeat_state         = None

@@ -6,7 +6,7 @@
 
 """http://wiki.ros.org/mavros for topic ref"""
 
-from autonomous_state_machine.utils import heartbeat_reset, on_new_gps_msg, on_new_heading_msg, on_receive_new_gps_waypoint, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints
+from autonomous_state_machine.utils import on_new_gps_msg, on_new_heading_msg, on_receive_new_gps_waypoint, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints#, heartbeat_reset
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
@@ -34,7 +34,7 @@ from autonomous_state_machine.states.new_obstacle_avoidance_controller_state imp
 from autonomous_state_machine.states.drive_state import DriveState
 from autonomous_state_machine.states.obstacle_recovery_state import ObstacleRecoveryState
 from autonomous_state_machine.states.validating_state import ValidatingState
-from autonomous_state_machine.states.heartbeat_state import HeartbeatState
+# from autonomous_state_machine.states.heartbeat_state import HeartbeatState
 from autonomous_state_machine.states.go_to_object_state import GoToObjectState
 from autonomous_state_machine.states.spin_state import SpinState
 from autonomous_state_machine.states.backward_spiral_state import BackwardSpiralState
@@ -60,19 +60,19 @@ class SharedData():
     AR_TIMEOUT = 20
     SPIRAL_TIMEOUT = 300
     OBJ_SPIRAL_TIMEOUT = 300
-    AR_TOLERANCE = 0.04 # size of ar tag we want to see before we stop
+    AR_TOLERANCE = 0.067 # size of ar tag we want to see before we stop
     OBJ_H_TOLERANCE = 0.08 # height of object we want to see before we stop
     OBJ_W_TOLERANCE = 0.08 # width of object we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
-    HEARTBEAT_TIMEOUT = (60)*4 # time in seconds after which we return to previous heartbeat coordinate
+    # HEARTBEAT_TIMEOUT = (60)*4 # time in seconds after which we return to previous heartbeat coordinate
     BACKUP_TIMEOUT = 2
     AUTON_TOPIC_NAME     = "/autonomous_drive_train/velocity"
     GPS_TOPIC_NAME       = "/mavros/global_position/global"
     VELOCITY_TOPIC_NAME  = "/mavros/global_position/raw/gps_vel"
     COMPASS_TOPIC_NAME   = "/mavros/global_position/compass_hdg"
     WAYPOINTS_TOPIC_NAME = "/rover_waypoint"
-    HEARTBEAT_TOPIC      = "/autonomous_heartbeat"
+    # HEARTBEAT_TOPIC      = "/autonomous_heartbeat"
     ARTAG_TOPIC_NAME     = "/artag_position"
     OBJECT_TOPIC_NAME    = "/object_position"
     OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME = "/obstacle_avoidance/path"
@@ -94,6 +94,8 @@ class SharedData():
     cur_position = None  # current position in x and y converted from gps intput
     cur_heading = None  # current orientation in radians counter clockwise
     cur_speed = 0     # we'll get this from 'global_position/gp_vel', NOT SAME UNITS AS AUTON SPEED
+    gps_ready = False
+    heading_ready = False
     # store the backup position to go to if we fail to reach the target
     go_home_position = None
     # [(x, y)] used to check if we are actually near the target
@@ -127,9 +129,9 @@ class SharedData():
     obstacle_avoidance_running = False
 
     # heartbeat time and pos
-    last_heartbeat_time = time()
-    last_heartbeat_pos  = []
-    go_to_heartbeat     = False
+    # last_heartbeat_time = time()
+    # last_heartbeat_pos  = []
+    # go_to_heartbeat     = False
 
     # all should_look_for_ar values to synchronize with new_waypoints
     should_look_for_ar = False
@@ -208,7 +210,7 @@ class AutonomousStateMachine(Node):
         self.create_subscription(Float64MultiArray, self.shared_data.ARTAG_TOPIC_NAME, lambda msg: found_ar_tag(msg, self.shared_data), 10)
         self.create_subscription(Float64MultiArray, self.shared_data.OBJECT_TOPIC_NAME, lambda msg: found_object(msg, self.shared_data), 10)
         self.create_subscription(Float64MultiArray, self.shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME, lambda msg: on_receive_new_obstacle_avoidance_waypoints(msg, self.shared_data), 10)
-        self.create_subscription(Bool, self.shared_data.HEARTBEAT_TOPIC, lambda msg: heartbeat_reset(msg, self.shared_data), 10)
+        # self.create_subscription(Bool, self.shared_data.HEARTBEAT_TOPIC, lambda msg: heartbeat_reset(msg, self.shared_data), 10)
         print("[StartState] Subscriber initialization complete.")
 
     def setup_publishers(self):
@@ -234,7 +236,7 @@ class AutonomousStateMachine(Node):
         self.state_instance.go_to_ar_state = GoToARState(self.shared_data, self.state_instance)
         self.state_instance.go_to_obj_state = GoToObjectState(self.shared_data, self.state_instance)
         self.state_instance.circle_state = CircleState(self.shared_data, self.state_instance)
-        self.state_instance.heartbeat_state = HeartbeatState(self.shared_data, self.state_instance)
+        # self.state_instance.heartbeat_state = HeartbeatState(self.shared_data, self.state_instance)
 
 
 def main(args=None):
