@@ -11,6 +11,13 @@ class State():
     def step(self):
         pass
 
+    def log(self, msg: str, logtype: str = "info"):
+        state_name = self.__class__.__name__
+        if logtype == "info":
+            self.shared_data.logger.info(f"[{state_name}] {msg}")
+        elif logtype == "error":
+            self.shared_data.logger.error(f"[{state_name}] {msg}")
+
 class StateInstance():
     start_state             = None
     new_controller_state    = None

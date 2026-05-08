@@ -64,54 +64,53 @@ def on_new_velocity_msg(msg: TwistStamped, shared_data: SharedData) -> None:
     shared_data.mutex.release()
 
 def on_receive_new_gps_waypoint(gps_waypoint_list: Float64MultiArray, shared_data: SharedData) -> None:
-    # Print the received GPS waypoint list for debugging
-    shared_data.logger.info(f"Received GPS waypoint list: {gps_waypoint_list}")
-
     """
     gps_waypoint_list.data is an array of repeating values:
-    [lat, lon, should_look_for_ar, id, speed, lat, lon, ...]
+    [lat, lon, should_look_for_ar, id, speed, should_look_for_obj, lat, lon, lat, lon, ...]
     """
+    shared_data.logger.info(f"Received GPS waypoint list: {gps_waypoint_list}")
     shared_data.mutex.acquire()
-    # Print current state for debugging
-    shared_data.logger.info(f"gps_converter: {shared_data.gps_converter}")
-    shared_data.logger.info(f"cur_position: {shared_data.cur_position}")
-    shared_data.logger.info(f"cur_heading: {shared_data.cur_heading}")
+    try:
+        shared_data.logger.info(f"gps_converter: {shared_data.gps_converter}")
+        shared_data.logger.info(f"cur_position: {shared_data.cur_position}")
+        shared_data.logger.info(f"cur_heading: {shared_data.cur_heading}")
 
-    # Check if required shared_data fields are initialized
-    if shared_data.gps_converter is None or \
-        shared_data.cur_position is None or \
-        shared_data.cur_heading is None:
-        shared_data.logger.error("Required shared_data fields are not initialized. Exiting function.")
+        if shared_data.gps_converter is None or \
+            shared_data.cur_position is None or \
+            shared_data.cur_heading is None:
+            shared_data.logger.error("Required shared_data fields are not initialized. Exiting function.")
+            return
+
+        data = gps_waypoint_list.data
+        shared_data.go_home_position = shared_data.cur_position
+        shared_data.should_look_for_ar = data[2]
+        shared_data.target_id = data[3]
+        # data[4] = speed (unused here), data[5] = should_look_for_obj flag
+        shared_data.should_look_for_obj = 0 if len(data) <= 5 or data[5] == 0 else 1
+        shared_data.target_obj_id = (data[5] - 1) if len(data) > 5 else 0
+
+        # Waypoints start at index 6, each waypoint is [lat, lon]
+        HEADER_SIZE = 6
+        shared_data.new_waypoints = [shared_data.cur_position]
+        i = HEADER_SIZE
+        while i + 1 < len(data):
+            lat, lon = data[i], data[i + 1]
+            xy = shared_data.gps_converter.gps_to_xy(lat, lon)
+            shared_data.logger.info(f"Converted waypoint: lat={lat}, lon={lon} -> xy={xy}")
+            shared_data.new_waypoints.append(xy)
+            i += 2
+
+        # Fall back to header lat/lon if no waypoints in the tail
+        if len(shared_data.new_waypoints) == 1:
+            xy = shared_data.gps_converter.gps_to_xy(data[0], data[1])
+            shared_data.new_waypoints.append(xy)
+
+        shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
+        shared_data.new_waypoints_flag = True
+        shared_data.obstacle_avoidance_running = False
+        shared_data.new_obstacle_avoidance_waypoints_flag = False
+    finally:
         shared_data.mutex.release()
-        return
-
-    # Remember where to go back to
-    shared_data.go_home_position = shared_data.cur_position
-    # Extract and store relevant waypoint data
-    shared_data.should_look_for_ar = gps_waypoint_list.data[2]
-    shared_data.target_id = gps_waypoint_list.data[3]
-    shared_data.should_look_for_obj = 0 if gps_waypoint_list.data[5] == 0 else 1
-    shared_data.target_obj_id = gps_waypoint_list.data[5] - 1  # Ensure correct indexing
-
-    size_of_waypts = len(gps_waypoint_list.data)
-    # Start new waypoints list with current position
-    shared_data.new_waypoints = [shared_data.cur_position]
-    # Convert each waypoint in the list to local XY and append
-    for i in range(len(gps_waypoint_list.data) // size_of_waypts):
-        lat = gps_waypoint_list.data[i * size_of_waypts]
-        lon = gps_waypoint_list.data[i * size_of_waypts + 1]
-        xy = shared_data.gps_converter.gps_to_xy(lat, lon)
-        shared_data.logger.info(f"Converted waypoint {i}: lat={lat}, lon={lon} -> xy={xy}")
-        shared_data.new_waypoints.append(xy)
-
-    shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
-
-    # Set flags for waypoint update and obstacle avoidance
-    shared_data.new_waypoints_flag = True
-    shared_data.obstacle_avoidance_running = False
-    shared_data.new_obstacle_avoidance_waypoints_flag = False
-
-    shared_data.mutex.release()
 
 def found_ar_tag(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
@@ -255,27 +254,21 @@ def clamp(num: float, minNum: float, maxNum: float) -> float:
     return max(min(num, maxNum), minNum)
 
 def reset_ar_data(shared_data: SharedData) -> None:
-    # Acquire the mutex to ensure thread-safe access to shared_data
-    shared_data.mutex.acquire()
+    with shared_data.mutex:
+        shared_data.should_look_for_ar = False
+        shared_data.found_ar_flag      = False
+        shared_data.do_gate_task       = False
+        shared_data.do_circle_task     = False
 
-    # Reset AR tag-related flags and data
-    shared_data.should_look_for_ar = False  # Synchronize should_look_for_ar with new_waypoints
-    shared_data.found_ar_flag      = False  # If AR tag has been detected, can go to AR tag state
-    shared_data.do_gate_task       = False  # If two tags detected, then do gate task
-    shared_data.do_circle_task     = False  # If one tag detected, then do circle task
+        shared_data.ar_cX = 0
+        shared_data.ar_cY = 0
+        shared_data.ar_size = 0
+        shared_data.ar_id = 0
 
-    shared_data.ar_cX = 0      # Central x position of detected AR tag
-    shared_data.ar_cY = 0      # Central y position of detected AR tag
-    shared_data.ar_size = 0    # Size of AR tag calculated by area
-    shared_data.ar_id = 0      # ID value of detected AR tag
-
-    shared_data.ar_cX2 = 0     # Central x position of detected AR tag 2
-    shared_data.ar_cY2 = 0     # Central y position of detected AR tag 2
-    shared_data.ar_size2 = 0   # Size of AR tag 2 calculated by area
-    shared_data.ar_id2 = 0     # ID value of detected AR tag 2
-
-    # Release the mutex after resetting AR data
-    shared_data.mutex.release()
+        shared_data.ar_cX2 = 0
+        shared_data.ar_cY2 = 0
+        shared_data.ar_size2 = 0
+        shared_data.ar_id2 = 0
 
 def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
     shared_data.mutex.acquire()

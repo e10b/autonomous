@@ -10,10 +10,9 @@ class RetryState(State):
         print("Entering retryState...")
 
     def step(self) -> State:
-        self.shared_data.mutex.acquire()
-        self.shared_data.new_waypoints = [self.shared_data.go_home_position]
-        self.shared_data.new_waypoints.insert(0, self.shared_data.cur_position)
-        self.shared_data.should_look_for_ar = False
+        with self.shared_data.mutex:
+            self.shared_data.new_waypoints = [self.shared_data.go_home_position]
+            self.shared_data.new_waypoints.insert(0, self.shared_data.cur_position)
+            self.shared_data.should_look_for_ar = False
 
-        self.shared_data.mutex.release()
         return self.state_instance.new_controller_state
