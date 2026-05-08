@@ -1,23 +1,24 @@
-from autonomous_state_machine.states.state_class import State
+from autonomous_state_machine.states.state_class import State, StateInstance
+from autonomous_state_machine.shared_data import SharedData
 from std_msgs.msg import Float64MultiArray
 from time import time
 import math
 from autonomous_state_machine.utils import clamp
 
 class DriveState(State):
-    def __init__(self, shared_data, state_instance):
+    def __init__(self, shared_data: SharedData, state_instance: StateInstance):
         super().__init__()
         self.shared_data = shared_data
         self.state_instance = state_instance
     
     def on_enter(self):
-        print("Entering driveState...")  # Notify when entering the drive state
+        self.shared_data.logger.info("Entering driveState...")  # Notify when entering the drive state
         self.shared_data.start_time = time()
         led_msg = Float64MultiArray()
         led_msg.data = [0, 0, 255]
         self.shared_data.led_publisher.publish(led_msg)
 
-    def step(self):
+    def step(self) -> State:
         self.shared_data.mutex.acquire()
         if self.shared_data.obstacle_avoidance_running:
             controller = self.shared_data.obstacle_avoidance_controller
@@ -31,15 +32,31 @@ class DriveState(State):
             self.shared_data.mutex.release()
             return self.state_instance.drive_state
 
-        # Get current pose (x, y, heading)
         # Wrap heading between -pi and pi to avoid large jumps in heading error
         # For example, 179 and -179 are only 2 degrees apart, but pp would give -358 (so a large spin)
         heading = self.shared_data.cur_heading
         heading = math.atan2(math.sin(heading), math.cos(heading))
         effective_speed = clamp(self.shared_data.cur_speed, 0.0, self.shared_data.MAX_AUTON_SPEED)
 
-        cur_pose = [self.shared_data.cur_position[0],
-                    self.shared_data.cur_position[1], heading]
+        if self.shared_data.odom_bias_set and self.shared_data.odom_ready:
+            ox, oy = self.shared_data.local_odom_position
+            bx, by = self.shared_data.odom_bias
+
+            if (self.shared_data.segment_distance >= SharedData.SEGMENT_LENGTH
+                    and self.shared_data.global_odom_ready
+                    and self.shared_data.gps_ned_to_map_offset is not None):
+                gx, gy = self.shared_data.global_odom_position
+                dx_off, dy_off = self.shared_data.gps_ned_to_map_offset
+                recalib = (gx + dx_off, gy + dy_off)
+                self.shared_data.odom_bias = (recalib[0] - ox, recalib[1] - oy) # translates everything into the GPS_2_NED frame
+                bx, by = self.shared_data.odom_bias
+                self.shared_data.segment_distance = 0.0
+
+            effective_pos = (ox + bx, oy + by)
+        else:
+            effective_pos = self.shared_data.cur_position
+
+        cur_pose = [effective_pos[0], effective_pos[1], heading]
         steering_radius = controller.calc_steering(cur_pose)
         
         # adds steering clamp to prevent small/irrelevant changes from causing a rover spin
@@ -75,6 +92,7 @@ class DriveState(State):
         if self.shared_data.new_obstacle_avoidance_waypoints_flag:
             left = 0
             right = 0
+            print("obstacle avoidance waypoints found")
         # Clamp wheel speeds and print debug info
         left = clamp(left, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
         right = clamp(right, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
@@ -84,15 +102,15 @@ class DriveState(State):
         vel_msg = Float64MultiArray()
         vel_msg.data = [left, right]
         self.shared_data.auton_publisher.publish(vel_msg)
-        if self.shared_data.new_waypoints and len(self.shared_data.new_waypoints) > 0:
-            fin_pos_x = round(self.shared_data.new_waypoints[-1][0], 3)
-            fin_pos_y = round(self.shared_data.new_waypoints[-1][1], 3)
-        else:
-            fin_pos_x = "N/A"
-            fin_pos_y = "N/A"
+        # if self.shared_data.new_waypoints and len(self.shared_data.new_waypoints) > 0:
+        #     fin_pos_x = round(self.shared_data.new_waypoints[-1][0], 3)
+        #     fin_pos_y = round(self.shared_data.new_waypoints[-1][1], 3)
+        # else:
+        #     fin_pos_x = "N/A"
+        #     fin_pos_y = "N/A"
         print(
             "CURR POS", round(self.shared_data.cur_position[0], 3), round(self.shared_data.cur_position[1], 3),
-            "FIN POS", fin_pos_x, fin_pos_y,
+            # "FIN POS", fin_pos_x, fin_pos_y,
             "LEFT WHEEL", round(left, 3),
             "RIGHT WHEEL", round(right, 3),
             "CUR_SPEED", round(self.shared_data.cur_speed, 3),

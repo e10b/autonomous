@@ -1,8 +1,13 @@
 import math
 from time import time
 from autonomous_state_machine.gps_to_ned import GPS_2_NED
+from autonomous_state_machine.shared_data import SharedData
+from sensor_msgs.msg import NavSatFix
+from std_msgs.msg import Float64, Float64MultiArray
+from geometry_msgs.msg import TwistStamped
+from nav_msgs.msg import Odometry
 
-def on_new_gps_msg(msg, shared_data):
+def on_new_gps_msg(msg: NavSatFix, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
 
@@ -24,9 +29,9 @@ def on_new_gps_msg(msg, shared_data):
     # Release the mutex after updating shared_data
     shared_data.mutex.release()
     # Print the current position and heading for debugging
-    print(f"Updated position: {shared_data.cur_position}, heading: {shared_data.cur_heading}")
+    # print(f"Updated position: {shared_data.cur_position}, heading: {shared_data.cur_heading}")
 
-def on_new_heading_msg(msg, shared_data):
+def on_new_heading_msg(msg: Float64, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
 
@@ -36,12 +41,12 @@ def on_new_heading_msg(msg, shared_data):
     shared_data.cur_heading = heading_deg * math.pi / 180.0
     shared_data.heading_ready = True
     # Print the updated heading for debugging
-    print(f"Updated heading: {shared_data.cur_heading} radians")
+    # print(f"Updated heading: {shared_data.cur_heading} radians")
 
     # Release the mutex after updating shared_data
     shared_data.mutex.release()
 
-def on_new_velocity_msg(msg, shared_data):
+def on_new_velocity_msg(msg: TwistStamped, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
 
@@ -53,14 +58,14 @@ def on_new_velocity_msg(msg, shared_data):
     shared_data.cur_speed = math.sqrt(x_speed**2 + y_speed**2)
 
     # Print the updated speed for debugging
-    print(f"Updated speed: {shared_data.cur_speed} m/s")
+    # print(f"Updated speed: {shared_data.cur_speed} m/s")
 
     # Release the mutex after updating shared_data
     shared_data.mutex.release()
 
-def on_receive_new_gps_waypoint(gps_waypoint_list, shared_data):
+def on_receive_new_gps_waypoint(gps_waypoint_list: Float64MultiArray, shared_data: SharedData) -> None:
     # Print the received GPS waypoint list for debugging
-    print("Received GPS waypoint list:", gps_waypoint_list)
+    shared_data.logger.info(f"Received GPS waypoint list: {gps_waypoint_list}")
 
     """
     gps_waypoint_list.data is an array of repeating values:
@@ -68,15 +73,15 @@ def on_receive_new_gps_waypoint(gps_waypoint_list, shared_data):
     """
     shared_data.mutex.acquire()
     # Print current state for debugging
-    print("gps_converter:", shared_data.gps_converter)
-    print("cur_position:", shared_data.cur_position)
-    print("cur_heading:", shared_data.cur_heading)
+    shared_data.logger.info(f"gps_converter: {shared_data.gps_converter}")
+    shared_data.logger.info(f"cur_position: {shared_data.cur_position}")
+    shared_data.logger.info(f"cur_heading: {shared_data.cur_heading}")
 
     # Check if required shared_data fields are initialized
     if shared_data.gps_converter is None or \
         shared_data.cur_position is None or \
         shared_data.cur_heading is None:
-        print("Required shared_data fields are not initialized. Exiting function.")
+        shared_data.logger.error("Required shared_data fields are not initialized. Exiting function.")
         shared_data.mutex.release()
         return
 
@@ -96,10 +101,10 @@ def on_receive_new_gps_waypoint(gps_waypoint_list, shared_data):
         lat = gps_waypoint_list.data[i * size_of_waypts]
         lon = gps_waypoint_list.data[i * size_of_waypts + 1]
         xy = shared_data.gps_converter.gps_to_xy(lat, lon)
-        print(f"Converted waypoint {i}: lat={lat}, lon={lon} -> xy={xy}")
+        shared_data.logger.info(f"Converted waypoint {i}: lat={lat}, lon={lon} -> xy={xy}")
         shared_data.new_waypoints.append(xy)
 
-    print("New waypoints:", shared_data.new_waypoints)
+    shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
 
     # Set flags for waypoint update and obstacle avoidance
     shared_data.new_waypoints_flag = True
@@ -108,10 +113,10 @@ def on_receive_new_gps_waypoint(gps_waypoint_list, shared_data):
 
     shared_data.mutex.release()
 
-def found_ar_tag(msg, shared_data):
+def found_ar_tag(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
-    print("Received AR tag message:", msg.data)
+    shared_data.logger.info(f"Received AR tag message: {msg.data}")
 
     # Check if the detected AR tag matches the primary target ID
     if shared_data.target_id == msg.data[-1]:
@@ -140,7 +145,7 @@ def found_ar_tag(msg, shared_data):
     # Release the mutex after updating shared_data
     shared_data.mutex.release()
 
-def rotate_and_translate_2d(x, y, pos_x, pos_y, heading):
+def rotate_and_translate_2d(x: float, y: float, pos_x: float, pos_y: float, heading: float) -> tuple[float, float]:
     """
     Transforms (x, y) coordinates relative to the robot to global coordinates
     using the robot's position and heading.
@@ -155,7 +160,7 @@ def rotate_and_translate_2d(x, y, pos_x, pos_y, heading):
 
 # Converts a flat array to a list of 2-tuples representing waypoints.
 # Example: [1, 2, 3, 4, 5, 6] -> [(1, 2), (3, 4), (5, 6)]
-def convert_arr_to_waypoint_list(arr):
+def convert_arr_to_waypoint_list(arr: list[float]) -> list[tuple[float, float]]:
     print("Converting array to waypoint list:", arr)
     out = []
     it = iter(arr)
@@ -171,7 +176,7 @@ def convert_arr_to_waypoint_list(arr):
     return out
 
 
-def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints, shared_data):
+def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
     if not shared_data.gps_ready or not shared_data.heading_ready:
@@ -228,7 +233,7 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints, sh
 #     # Release the mutex after updating shared_data
 #     shared_data.mutex.release()
 
-def found_object(msg, shared_data):
+def found_object(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
     print("Seeing object id:", msg.data[-1], "Looking for:", shared_data.target_obj_id)
@@ -245,11 +250,11 @@ def found_object(msg, shared_data):
     # Release the mutex after updating shared_data
     shared_data.mutex.release()
 
-def clamp(num, minNum, maxNum):
+def clamp(num: float, minNum: float, maxNum: float) -> float:
     # Clamp the number between minNum and maxNum
     return max(min(num, maxNum), minNum)
 
-def reset_ar_data(shared_data):
+def reset_ar_data(shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
 
@@ -271,4 +276,42 @@ def reset_ar_data(shared_data):
 
     # Release the mutex after resetting AR data
     shared_data.mutex.release()
+
+def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
+    shared_data.mutex.acquire()
+    try:
+        ox = msg.pose.pose.position.x
+        oy = msg.pose.pose.position.y
+
+        if shared_data._prev_local_odom_pos is not None:
+            dx = ox - shared_data._prev_local_odom_pos[0]
+            dy = oy - shared_data._prev_local_odom_pos[1]
+            shared_data.segment_distance += math.sqrt(dx*dx + dy*dy)
+
+        shared_data.local_odom_position = (ox, oy)
+        shared_data._prev_local_odom_pos = (ox, oy)
+        shared_data.odom_ready = True
+
+        if not shared_data.odom_bias_set and shared_data.gps_ned_to_map_offset is not None:
+            dx_off, dy_off = shared_data.gps_ned_to_map_offset
+            gx, gy = shared_data.global_odom_position
+            recalib = (gx + dx_off, gy + dy_off)
+            shared_data.odom_bias = (recalib[0] - ox, recalib[1] - oy)
+            shared_data.odom_bias_set = True
+    finally:
+        shared_data.mutex.release()
+
+def on_new_global_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
+    shared_data.mutex.acquire()
+    try:
+        gx = msg.pose.pose.position.x
+        gy = msg.pose.pose.position.y
+        shared_data.global_odom_position = (gx, gy)
+        shared_data.global_odom_ready = True
+
+        if shared_data.gps_ned_to_map_offset is None and shared_data.cur_position is not None:
+            cx, cy = shared_data.cur_position
+            shared_data.gps_ned_to_map_offset = (cx - gx, cy - gy)
+    finally:
+        shared_data.mutex.release()
 

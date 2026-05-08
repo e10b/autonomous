@@ -13,7 +13,7 @@ class StartState(State):
 
     def on_enter(self):
         # Print entering state for debugging
-        print("[StartState] Entering startState...")
+        self.shared_data.logger.info("[StartState] Entering startState...")
         led_msg = Float64MultiArray()
         led_msg.data = [255, 0, 0]
         self.shared_data.led_publisher.publish(led_msg)
@@ -23,7 +23,7 @@ class StartState(State):
         self.shared_data.auton_publisher.publish(vel_msg)
 
         # Clear debug file for fresh debug output
-        print("[StartState] Clearing debug.txt file...")
+        self.shared_data.logger.info("[StartState] Clearing debug.txt file...")
         with open('debug.txt', 'w') as f:
             f.write('')
 
