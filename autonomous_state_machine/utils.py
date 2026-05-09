@@ -176,49 +176,40 @@ def convert_arr_to_waypoint_list(arr: list[float]) -> list[tuple[float, float]]:
 
 
 def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints: Float64MultiArray, shared_data: SharedData) -> None:
-    # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
     if not shared_data.gps_ready or not shared_data.heading_ready:
         shared_data.mutex.release()
         return
     try:
-        # If obstacle avoidance is not currently running, process the new waypoints
         if not shared_data.obstacle_avoidance_running:
-            print("Preparing to avoid obstacle")
-            # Convert the flat array to a list of 2D waypoints
             waypoint_list = convert_arr_to_waypoint_list(
                 obstacle_avoidence_waypoints.data)
             
             if len(waypoint_list) < 2:
-                print("Ignoring obstacle avoidance path: fewer than 2 waypoints")
+                shared_data.mutex.release()
                 return
 
             if all(math.hypot(x,y)<0.05 for x,y in waypoint_list):
-                print("Ignoring obstacle avoidance path: all waypoints are near origin")
-                # return
+                shared_data.mutex.release()
+                return
             
             pos = shared_data.cur_position
             if pos is None:
-                print("Current position is None")
-            # heading of the robot
-            heading = shared_data.cur_heading
-            print("Received obstacle avoidance waypoint list:", waypoint_list)
-            # Transform waypoints from robot-relative to global coordinates
-            if pos is None or heading is None:
+                shared_data.mutex.release()
                 return
+            
+            heading = shared_data.cur_heading
+            if pos is None or heading is None:
+                shared_data.mutex.release()
+                return
+            
             abs_waypoint_list = [rotate_and_translate_2d(
                 *pt, *pos, heading) for pt in waypoint_list]
-            print("Current position:", pos, "Current heading:", heading)
-            print("Transformed (global) obstacle avoidance waypoints:", abs_waypoint_list)
-            # Select every third waypoint starting from the fourth (index 3)
-            # shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list[3::3]
             shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list
-            print("Filtered obstacle avoidance waypoints:", shared_data.obstacle_avoidance_new_waypoints)
-
-            # Set flag indicating new obstacle avoidance waypoints are available
             shared_data.new_obstacle_avoidance_waypoints_flag = True
+        else:
+            print(f"[OA] New path rejected: avoidance already running")
     finally:
-        # Release the mutex after updating shared_data
         shared_data.mutex.release()
 
 # def heartbeat_reset(msg, shared_data):

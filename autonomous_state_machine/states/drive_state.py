@@ -20,13 +20,12 @@ class DriveState(State):
 
     def step(self) -> State:
         with self.shared_data.mutex:
+            # CRITICAL: If obstacle avoidance is running, DON'T publish commands from DriveState.
+            # Let NewObstacleAvoidanceControllerState handle all control.
             if self.shared_data.obstacle_avoidance_running:
-                controller = self.shared_data.obstacle_avoidance_controller
-                if controller is None:
-                    self.shared_data.obstacle_avoidance_running = False
-                    controller = self.shared_data.controller
-            else:
-                controller = self.shared_data.controller
+                return self.state_instance.drive_state
+            
+            controller = self.shared_data.controller
 
             if controller is None or self.shared_data.cur_position is None or self.shared_data.cur_heading is None:
                 return self.state_instance.drive_state
@@ -91,14 +90,15 @@ class DriveState(State):
             if self.shared_data.new_obstacle_avoidance_waypoints_flag:
                 left = 0
                 right = 0
-                self.log("obstacle avoidance waypoints found")
+                self.log("[DriveState] Flag detected: STOPPING rover (set to [0,0]) before state transition")
             # Clamp wheel speeds and print debug info
             left = clamp(left, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             right = clamp(right, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            self.log(f"heading {self.shared_data.cur_heading} pos {self.shared_data.cur_position} next_pt {controller.waypoints[controller.look_ahead_point_index]}")
+            # self.log(f"heading {self.shared_data.cur_heading} pos {self.shared_data.cur_position} next_pt {controller.waypoints[controller.look_ahead_point_index]}")
             # Publish velocity message to robot
             vel_msg = Float64MultiArray()
             vel_msg.data = [left, right]
+            # self.log(f"[DriveState] Publishing to auton_publisher: left={left:.3f}, right={right:.3f}")
             self.shared_data.auton_publisher.publish(vel_msg)
             # print(
             #     "CURR POS", round(self.shared_data.cur_position[0], 3), round(self.shared_data.cur_position[1], 3),
@@ -121,7 +121,8 @@ class DriveState(State):
                 return self.state_instance.go_to_ar_state
             # If new obstacle avoidance waypoints are set, switch state
             if self.shared_data.new_obstacle_avoidance_waypoints_flag:
-                self.log("New obstacle avoidance waypoints detected, switching controller")
+                self.log("[DriveState] TRANSITIONING to NewObstacleAvoidanceControllerState")
+                self.log(f"[DriveState] Waypoints available: {self.shared_data.obstacle_avoidance_new_waypoints}")
                 self.shared_data.obstacle_avoidance_running = True
                 return self.state_instance.new_obstacle_avoidance_controller_state
             # Check for object detection

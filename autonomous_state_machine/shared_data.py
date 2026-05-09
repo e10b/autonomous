@@ -46,13 +46,6 @@ class SharedData():
     ################ One mutex to rule all the following vars ################
     mutex = Lock()  # this is for the entire data class
 
-    ################ Pub and sub section ################
-    node = None
-    subscriptions = None
-    auton_publisher = None
-    cur_state_publisher = None
-    auton_path_publisher = None
-
     ################ global variables ################
     cur_position = None  # current position in x and y converted from gps intput
     cur_heading = None  # current orientation in radians counter clockwise
