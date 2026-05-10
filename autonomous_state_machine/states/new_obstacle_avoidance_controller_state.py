@@ -2,6 +2,7 @@ from autonomous_state_machine.states.state_class import State
 from std_msgs.msg import Float64MultiArray
 import math
 from time import time
+from autonomous_state_machine.align import AlignAndMove
 
 class NewObstacleAvoidanceControllerState(State):
     def __init__(self, shared_data, state_instance):
@@ -33,6 +34,12 @@ class NewObstacleAvoidanceControllerState(State):
         self.path_waypoints = waypoints
         self.current_waypoint_index = 1 if len(waypoints) > 1 else 0
         self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+        # Create an AlignAndMove controller specifically for obstacle avoidance
+        # and start the first target. This controller will publish wheel
+        # commands directly to auton_publisher and implement simple rotate-then-move.
+        self.shared_data.obstacle_avoidance_controller = AlignAndMove(waypoints)
+        self.shared_data.obstacle_avoidance_controller.start_next_target()
+
         self.phase = "reverse"
         self.phase_start_time = time()
         return True
@@ -68,14 +75,20 @@ class NewObstacleAvoidanceControllerState(State):
 
             if not self.path_waypoints:
                 self._publish_stop()
+                # clear flags to ensure DriveState resumes
                 self.shared_data.obstacle_avoidance_running = False
+                self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+                self.shared_data.obstacle_avoidance_new_waypoints = []
                 self.phase = "idle"
                 self.phase_start_time = None
                 return self.state_instance.drive_state
             
             if self.current_waypoint_index >= len(self.path_waypoints):
                 self._publish_stop()
+                # clear flags to ensure DriveState resumes
                 self.shared_data.obstacle_avoidance_running = False
+                self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+                self.shared_data.obstacle_avoidance_new_waypoints = []
                 self.phase = "idle"
                 self.phase_start_time = None
                 return self.state_instance.drive_state
@@ -96,59 +109,33 @@ class NewObstacleAvoidanceControllerState(State):
                 self.phase = "follow"
                 return self.state_instance.new_obstacle_avoidance_controller_state
             
-            # Phase 2: Follow waypoints after reverse
+            # Phase 2: Follow waypoints after reverse using AlignAndMove controller
             if self.phase == "follow":
-                if self.current_waypoint_index >= len(self.path_waypoints):
-                    print("[OA] All waypoints reached, exiting OA")
+                # Ensure we have an AlignAndMove controller
+                controller = self.shared_data.obstacle_avoidance_controller
+                if controller is None:
+                    print("[OA] Retry path picked up: rebuilding AlignAndMove controller")
+                    controller = AlignAndMove(self.path_waypoints)
+                    controller.start_next_target()
+                    self.shared_data.obstacle_avoidance_controller = controller
+
+                # Let AlignAndMove publish wheel commands; it returns True when the
+                # current target is reached (and advances its internal list).
+                target_done = controller.step(self.shared_data)
+                if target_done:
+                    # If there are more targets, start the next one
+                    if controller.user_unreached_pts:
+                        controller.start_next_target()
+                        return self.state_instance.new_obstacle_avoidance_controller_state
+                    # Otherwise finish obstacle avoidance
+                    print("[OA] ALL WAYPOINTS COMPLETED (AlignAndMove)")
                     self._publish_stop()
+                    # clear flags and controller so DriveState resumes cleanly
                     self.shared_data.obstacle_avoidance_running = False
+                    self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+                    self.shared_data.obstacle_avoidance_new_waypoints = []
                     self.phase = "idle"
                     self.phase_start_time = None
+                    self.shared_data.obstacle_avoidance_controller = None
                     return self.state_instance.drive_state
-                
-                # Get robot's current position from shared_data
-                if self.shared_data.cur_position is None:
-                    print("[OA] No position data available")
-                    return self.state_instance.new_obstacle_avoidance_controller_state
-                
-                robot_x, robot_z = self.shared_data.cur_position
-                target_x, target_z = self.path_waypoints[self.current_waypoint_index]
-                
-                # Calculate distance to waypoint
-                dx = target_x - robot_x
-                dz = target_z - robot_z
-                distance = math.sqrt(dx*dx + dz*dz)
-                
-                print(f"[OA] Waypoint {self.current_waypoint_index}/{len(self.path_waypoints)-1}: pos=({robot_x:.2f},{robot_z:.2f}) target=({target_x:.2f},{target_z:.2f}) dist={distance:.2f}m")
-                
-                # Check if waypoint reached
-                if distance < self.waypoint_threshold:
-                    print(f"[OA] Waypoint {self.current_waypoint_index} REACHED")
-                    self.current_waypoint_index += 1
-                    if self.current_waypoint_index >= len(self.path_waypoints):
-                        print("[OA] ALL WAYPOINTS COMPLETED")
-                        self._publish_stop()
-                        self.shared_data.obstacle_avoidance_running = False
-                        self.phase = "idle"
-                        self.phase_start_time = None
-                        return self.state_instance.drive_state
-                    return self.state_instance.new_obstacle_avoidance_controller_state
-                
-                # Calculate bearing to waypoint (in radians, 0 = forward, positive = left turn)
-                bearing = math.atan2(dx, dz)
-                
-                # Proportional steering: multiply bearing by constant gain (not by speed)
-                # This ensures forward motion is always positive
-                base_speed = self.shared_data.AUTON_SPEED
-                steering_gain = 0.5  # Limit turn radius
-                turn_speed = max(-base_speed * 0.5, min(base_speed * 0.5, bearing * steering_gain))
-                
-                # Publish velocity command (left wheel, right wheel)
-                vel_msg = Float64MultiArray()
-                left_speed = base_speed + turn_speed
-                right_speed = base_speed - turn_speed
-                vel_msg.data = [left_speed, right_speed]
-                
-                print(f"[OA] Publishing: left={left_speed:.2f}, right={right_speed:.2f}, bearing={bearing:.2f}rad")
-                self.shared_data.auton_publisher.publish(vel_msg)
                 return self.state_instance.new_obstacle_avoidance_controller_state

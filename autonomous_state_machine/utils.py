@@ -181,34 +181,39 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints: Fl
         shared_data.mutex.release()
         return
     try:
-        if not shared_data.obstacle_avoidance_running:
-            waypoint_list = convert_arr_to_waypoint_list(
-                obstacle_avoidence_waypoints.data)
-            
-            if len(waypoint_list) < 2:
-                shared_data.mutex.release()
-                return
+        waypoint_list = convert_arr_to_waypoint_list(
+            obstacle_avoidence_waypoints.data)
 
-            if all(math.hypot(x,y)<0.05 for x,y in waypoint_list):
-                shared_data.mutex.release()
-                return
-            
-            pos = shared_data.cur_position
-            if pos is None:
-                shared_data.mutex.release()
-                return
-            
-            heading = shared_data.cur_heading
-            if pos is None or heading is None:
-                shared_data.mutex.release()
-                return
-            
-            abs_waypoint_list = [rotate_and_translate_2d(
-                *pt, *pos, heading) for pt in waypoint_list]
-            shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list
-            shared_data.new_obstacle_avoidance_waypoints_flag = True
-        else:
-            print(f"[OA] New path rejected: avoidance already running")
+        if len(waypoint_list) < 2:
+            shared_data.mutex.release()
+            return
+
+        if all(math.hypot(x, y) < 0.05 for x, y in waypoint_list):
+            shared_data.mutex.release()
+            return
+
+        pos = shared_data.cur_position
+        if pos is None:
+            shared_data.mutex.release()
+            return
+
+        heading = shared_data.cur_heading
+        if pos is None or heading is None:
+            shared_data.mutex.release()
+            return
+
+        abs_waypoint_list = [rotate_and_translate_2d(
+            *pt, *pos, heading) for pt in waypoint_list]
+
+        # If obstacle avoidance is already running, treat this as a retry:
+        # clear any stale pending OA path and replace it with the newest one.
+        if shared_data.obstacle_avoidance_running:
+            print("[OA] Reattempt requested: replacing pending OA waypoints")
+            shared_data.obstacle_avoidance_new_waypoints = []
+            shared_data.new_obstacle_avoidance_waypoints_flag = False
+
+        shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list
+        shared_data.new_obstacle_avoidance_waypoints_flag = True
     finally:
         shared_data.mutex.release()
 
