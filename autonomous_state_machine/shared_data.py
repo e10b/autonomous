@@ -126,4 +126,5 @@ class SharedData():
     start_heading = None  # heading stamp to mark when we end spinning
     obstacle_avoidance_controller = None
 
+    global_map    = None  # GlobalMapManager instance (passive mapping only)
     logger        = None

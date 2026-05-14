@@ -21,7 +21,7 @@ class NewObstacleAvoidanceControllerState(State):
         # Phase logic: reverse briefly, then follow waypoints
         self.phase = "idle"
         self.phase_start_time = None
-        self.reverse_duration = 10.0  # seconds to back up before following the path
+        self.reverse_duration = 2.0  # seconds to back up before following the path
 
     def _load_shared_waypoints(self):
         if not self.shared_data.new_obstacle_avoidance_waypoints_flag:
