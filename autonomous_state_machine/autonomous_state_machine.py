@@ -41,6 +41,7 @@ from autonomous_state_machine.states.backward_spiral_state import BackwardSpiral
 from autonomous_state_machine.states.go_to_ar_state import GoToARState
 from autonomous_state_machine.states.circle_state import CircleState
 from autonomous_state_machine.shared_data import SharedData
+import autonomous_state_machine.config as config
 
 RATE = 30
 
@@ -54,7 +55,16 @@ class AutonomousStateMachine(Node):
 
         self.shared_data.node = self
         self.shared_data.logger = self.get_logger()
-        self.shared_data.global_map = GlobalMapManager(logger=self.get_logger())
+        self.shared_data.global_map = GlobalMapManager(
+            map_size_m=config.PERSISTENT_GRID_SIZE,
+            overlap_m=config.OVERLAP_SIZE,
+            shift_m=config.SHIFT_SIZE,
+            cell_size_m=config.GRID_CELL_SIZE,
+            free_space_decay=config.CONFIDENCE_DEGRADED_AMOUNT,
+            obstacle_confidence_increase=config.CONFIDENCE_ADDED_AMOUNT,
+            obstacle_threshold=config.CONFIDENCE_THRESHOLD,
+            logger=self.get_logger()
+        )
         self.build_states()
         self.setup_subscribers()
         self.setup_publishers()
@@ -86,7 +96,7 @@ class AutonomousStateMachine(Node):
         # published; the path topic is only published when the local planner finds a
         # route, so a wide / close obstacle silently drops the trigger.
         _OA_CORRIDOR_HALF = 8   # cells — matches obstacle_detection (ceil(0.75 / 0.10))
-        _OA_COOLDOWN      = 3.0 # seconds — slightly longer than reverse_duration (2 s)
+        _OA_COOLDOWN      = 1.0 + config.BACKUP_DURATION
         cx = grid_x // 2
         top = max(0, cx - _OA_CORRIDOR_HALF)
         bot = min(grid_x, cx + _OA_CORRIDOR_HALF + 1)
@@ -127,13 +137,14 @@ class AutonomousStateMachine(Node):
         if time() - self.shared_data.latest_ar_found > 2:
             self.shared_data.found_ar_flag = False
 
-        self._map_print_counter += 1
-        if self._map_print_counter >= RATE:
-            self._map_print_counter = 0
-            pos = self.shared_data.cur_position
-            if pos is not None:
-                path = self.shared_data.obstacle_avoidance_new_waypoints or None
-                self.shared_data.global_map.print_ascii_map(pos[0], pos[1], path_waypoints=path)
+        if config.PRINT_ASCII_MAP:
+            self._map_print_counter += 1
+            if self._map_print_counter >= RATE:
+                self._map_print_counter = 0
+                pos = self.shared_data.cur_position
+                if pos is not None:
+                    path = self.shared_data.obstacle_avoidance_new_waypoints or None
+                    self.shared_data.global_map.print_ascii_map(pos[0], pos[1], path_waypoints=path)
 
     def setup_subscribers(self):
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, durability=QoSDurabilityPolicy.VOLATILE, depth=10)
