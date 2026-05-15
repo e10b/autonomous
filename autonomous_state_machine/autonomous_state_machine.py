@@ -81,6 +81,37 @@ class AutonomousStateMachine(Node):
         local_grid = np.array(msg.data, dtype=np.uint8).reshape(grid_x, grid_z)
         self.shared_data.global_map.update_map(local_grid, pos[0], pos[1], yaw)
 
+        # Trigger avoidance directly from the occupancy grid so we don't depend on
+        # obstacle_detection's local Theta* succeeding.  The occupancy grid is always
+        # published; the path topic is only published when the local planner finds a
+        # route, so a wide / close obstacle silently drops the trigger.
+        _OA_CORRIDOR_HALF = 8   # cells — matches obstacle_detection (ceil(0.75 / 0.10))
+        _OA_COOLDOWN      = 3.0 # seconds — slightly longer than reverse_duration (2 s)
+        cx = grid_x // 2
+        top = max(0, cx - _OA_CORRIDOR_HALF)
+        bot = min(grid_x, cx + _OA_CORRIDOR_HALF + 1)
+        if not local_grid[top:bot, :].any():
+            return
+
+        with self.shared_data.mutex:
+            if time() - self.shared_data.last_oa_trigger_time < _OA_COOLDOWN:
+                return
+            if not self.shared_data.gps_ready or not self.shared_data.new_waypoints:
+                return
+            goal = self.shared_data.new_waypoints[-1]
+            path = self.shared_data.global_map.get_path(pos[0], pos[1], goal[0], goal[1])
+            if not path:
+                print("[OA] Corridor blocked but get_path returned empty — map not ready?")
+                return
+            if self.shared_data.obstacle_avoidance_running:
+                print("[OA] Reattempt: replacing pending OA waypoints")
+                self.shared_data.obstacle_avoidance_new_waypoints = []
+                self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+            self.shared_data.obstacle_avoidance_new_waypoints = path
+            self.shared_data.new_obstacle_avoidance_waypoints_flag = True
+            self.shared_data.last_oa_trigger_time = time()
+            print(f"[OA] Triggered from occupancy grid, path={len(path)} waypoints")
+
     def _tick(self):
         if self.shared_data.new_waypoints_flag:
             self.cur_state = self.state_instance.new_controller_state

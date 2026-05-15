@@ -176,52 +176,11 @@ def convert_arr_to_waypoint_list(arr: list[float]) -> list[tuple[float, float]]:
 
 
 def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints: Float64MultiArray, shared_data: SharedData) -> None:
-    shared_data.mutex.acquire()
-    if not shared_data.gps_ready or not shared_data.heading_ready:
-        shared_data.mutex.release()
-        return
-    try:
-        pos = shared_data.cur_position
-        heading = shared_data.cur_heading
-        if pos is None or heading is None:
-            return
-
-        # Use global map Theta* if available and a mission goal exists.
-        # get_path() returns global NED waypoints directly — no rotation needed.
-        # Falls back to local camera-frame rotation when the map isn't ready.
-        origin_set = shared_data.global_map is not None and shared_data.global_map.global_origin_x is not None
-        print(f"[OA TRIGGER] global_map={shared_data.global_map is not None}, origin_set={origin_set}, "
-              f"waypoints={len(shared_data.new_waypoints)}, pos={pos}")
-        if shared_data.global_map is not None and shared_data.new_waypoints:
-            goal = shared_data.new_waypoints[-1]
-            print(f"[OA TRIGGER] Calling get_path robot={pos} goal={goal}")
-            abs_waypoint_list = shared_data.global_map.get_path(
-                pos[0], pos[1], goal[0], goal[1])
-            print(f"[OA TRIGGER] get_path returned {len(abs_waypoint_list)} waypoints")
-            if not abs_waypoint_list:
-                print("[OA TRIGGER] get_path empty — skipping trigger")
-                return
-        else:
-            print("[OA TRIGGER] Falling back to local rotation (no map or no waypoints)")
-            # Fallback: convert local camera-frame waypoints to global NED.
-            waypoint_list = convert_arr_to_waypoint_list(obstacle_avoidence_waypoints.data)
-            if len(waypoint_list) < 2:
-                return
-            if all(math.hypot(x, y) < 0.05 for x, y in waypoint_list):
-                return
-            abs_waypoint_list = [rotate_and_translate_2d(*pt, *pos, heading) for pt in waypoint_list]
-
-        # If obstacle avoidance is already running, treat this as a retry:
-        # clear any stale pending OA path and replace it with the newest one.
-        if shared_data.obstacle_avoidance_running:
-            print("[OA] Reattempt requested: replacing pending OA waypoints")
-            shared_data.obstacle_avoidance_new_waypoints = []
-            shared_data.new_obstacle_avoidance_waypoints_flag = False
-
-        shared_data.obstacle_avoidance_new_waypoints = abs_waypoint_list
-        shared_data.new_obstacle_avoidance_waypoints_flag = True
-    finally:
-        shared_data.mutex.release()
+    # Avoidance is now triggered directly from the occupancy grid callback in the
+    # state machine node (_on_occupancy_grid), which fires regardless of whether
+    # obstacle_detection's local Theta* finds a route.  This callback is kept as a
+    # no-op so the subscription doesn't error out but doesn't double-trigger.
+    pass
 
 # def heartbeat_reset(msg, shared_data):
 #     # Acquire the mutex to ensure thread-safe access to shared_data
