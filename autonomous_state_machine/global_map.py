@@ -435,7 +435,10 @@ class GlobalMapManager:
     def print_ascii_map(self, robot_x, robot_y, window=40, robot_radius_m=1.0, path_waypoints=None):
         """Writes a localized ASCII representation of the grid to a file for external viewing."""
         if self.global_origin_x is None or self.global_origin_y is None:
+            print("DEBUG: Global origin not set, cannot print map.")
             return
+        else:
+            print("global origin:", self.global_origin_x, self.global_origin_y)
 
         robot_c = int((robot_x - self.global_origin_x) / self.cell_size_m)
         robot_r = int((robot_y - self.global_origin_y) / self.cell_size_m)

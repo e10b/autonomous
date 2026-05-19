@@ -2,8 +2,8 @@ import math
 from time import time
 from autonomous_state_machine.gps_to_ned import GPS_2_NED
 from autonomous_state_machine.shared_data import SharedData
-from sensor_msgs.msg import NavSatFix
-from std_msgs.msg import Float64, Float64MultiArray
+from sensor_msgs.msg import NavSatFix, Imu
+from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 
@@ -31,19 +31,13 @@ def on_new_gps_msg(msg: NavSatFix, shared_data: SharedData) -> None:
     # Print the current position and heading for debugging
     # print(f"Updated position: {shared_data.cur_position}, heading: {shared_data.cur_heading}")
 
-def on_new_heading_msg(msg: Float64, shared_data: SharedData) -> None:
-    # Acquire the mutex to ensure thread-safe access to shared_data
+def on_new_heading_msg(msg: Imu, shared_data: SharedData) -> None:
     shared_data.mutex.acquire()
-
-    # Convert compass heading (0=N, CW+) to math heading (0=E, CCW+) and normalize.
-    heading_deg = 90.0 - float(msg.data)
-    heading_deg = ((heading_deg + 180.0) % 360.0) - 180.0
-    shared_data.cur_heading = heading_deg * math.pi / 180.0
+    q = msg.orientation
+    yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                     1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+    shared_data.cur_heading = yaw
     shared_data.heading_ready = True
-    # Print the updated heading for debugging
-    # print(f"Updated heading: {shared_data.cur_heading} radians")
-
-    # Release the mutex after updating shared_data
     shared_data.mutex.release()
 
 def on_new_velocity_msg(msg: TwistStamped, shared_data: SharedData) -> None:

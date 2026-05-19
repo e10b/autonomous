@@ -31,9 +31,9 @@ class SharedData():
     # HEARTBEAT_TIMEOUT = (60)*4 # time in seconds after which we return to previous heartbeat coordinate
     BACKUP_TIMEOUT = 2
     AUTON_TOPIC_NAME     = "/autonomous_drive_train/velocity"
-    GPS_TOPIC_NAME       = "/mavros/global_position/global"
-    VELOCITY_TOPIC_NAME  = "/mavros/global_position/raw/gps_vel"
-    COMPASS_TOPIC_NAME   = "/mavros/global_position/compass_hdg"
+    GPS_TOPIC_NAME       = "/autonomous/localization/gps/fix"
+    VELOCITY_TOPIC_NAME  = "/autonomous/localization/gps/vel"
+    COMPASS_TOPIC_NAME   = "/autonomous/localization/gps/heading"
     WAYPOINTS_TOPIC_NAME = "/rover_waypoint"
     # HEARTBEAT_TOPIC      = "/autonomous_heartbeat"
     ARTAG_TOPIC_NAME     = "/artag_position"

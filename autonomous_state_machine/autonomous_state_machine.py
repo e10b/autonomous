@@ -13,8 +13,8 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Float64MultiArray, Float64, String, Bool
-from sensor_msgs.msg import NavSatFix, PointCloud2
+from std_msgs.msg import Float64MultiArray, String, Bool
+from sensor_msgs.msg import NavSatFix, PointCloud2, Imu
 from time import time
 from autonomous_state_machine.global_map import GlobalMapManager
 
@@ -106,6 +106,8 @@ class AutonomousStateMachine(Node):
         if pos is None or yaw is None:
             return
 
+        self.shared_data.global_map.initialize_origin(pos[0], pos[1])
+
         CELLS = config.PC_LOCAL_GRID_CELLS
         CELL  = config.GRID_CELL_SIZE
         half  = CELLS / 2.0
@@ -129,26 +131,25 @@ class AutonomousStateMachine(Node):
         xi = np.clip((cam_x / CELL + half).astype(np.int32), 0, CELLS - 1)
         zi = np.clip((cam_z / CELL).astype(np.int32),        0, CELLS - 1)
 
-        local_grid = np.zeros((CELLS, CELLS), dtype=np.uint8)
-        local_grid[xi, zi] = 1
+        point_count = np.zeros((CELLS, CELLS), dtype=np.int32)
+        np.add.at(point_count, (xi, zi), 1)
+        local_grid = (point_count >= config.PC_MIN_POINTS_PER_CELL).astype(np.uint8)
 
         self.shared_data.global_map.update_map(local_grid, pos[0], pos[1], yaw)
 
-        _OA_CORRIDOR_HALF = 8   # cells — half-width of rover body corridor
-        _OA_COOLDOWN      = 1.0 + config.BACKUP_DURATION
         cx  = CELLS // 2
-        top = max(0, cx - _OA_CORRIDOR_HALF)
-        bot = min(CELLS, cx + _OA_CORRIDOR_HALF + 1)
+        top = max(0, cx - config.OA_CORRIDOR_HALF_CELLS)
+        bot = min(CELLS, cx + config.OA_CORRIDOR_HALF_CELLS + 1)
         if not local_grid[top:bot, :].any():
             return
 
         with self.shared_data.mutex:
-            if time() - self.shared_data.last_oa_trigger_time < _OA_COOLDOWN:
+            if time() - self.shared_data.last_oa_trigger_time < config.OA_COOLDOWN_EXTRA + config.BACKUP_DURATION:
                 return
             if not self.shared_data.gps_ready or not self.shared_data.new_waypoints:
                 return
             goal = self.shared_data.new_waypoints[-1]
-            path = self.shared_data.global_map.get_path(pos[0], pos[1], goal[0], goal[1])
+            path = self.shared_data.global_map.get_path(pos[0], pos[1], goal[0], goal[1], robot_radius_m=config.OA_ROBOT_RADIUS_M)
             if not path:
                 print("[OA] Corridor blocked but get_path returned empty — map not ready?")
                 return
@@ -184,6 +185,12 @@ class AutonomousStateMachine(Node):
                 if pos is not None:
                     path = self.shared_data.obstacle_avoidance_new_waypoints or None
                     self.shared_data.global_map.print_ascii_map(pos[0], pos[1], path_waypoints=path)
+                else:
+                    try:
+                        with open("/tmp/rover_map.txt", "w") as f:
+                            f.write("--- Autonomous State Machine: waiting for pose data ---\n")
+                    except Exception:
+                        pass
 
     def setup_subscribers(self):
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, durability=QoSDurabilityPolicy.VOLATILE, depth=10)
@@ -192,7 +199,7 @@ class AutonomousStateMachine(Node):
         self.get_logger().info("[StartState] Initializing subscribers...")
         
         self.create_subscription(NavSatFix, self.shared_data.GPS_TOPIC_NAME, lambda msg: on_new_gps_msg(msg, self.shared_data), qos_profile)
-        self.create_subscription(Float64, self.shared_data.COMPASS_TOPIC_NAME, lambda msg: on_new_heading_msg(msg, self.shared_data), qos_profile)
+        self.create_subscription(Imu, self.shared_data.COMPASS_TOPIC_NAME, lambda msg: on_new_heading_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(Float64MultiArray, self.shared_data.WAYPOINTS_TOPIC_NAME, lambda msg: on_receive_new_gps_waypoint(msg, self.shared_data), 10)
         self.create_subscription(TwistStamped, self.shared_data.VELOCITY_TOPIC_NAME, lambda msg: on_new_velocity_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(Float64MultiArray, self.shared_data.ARTAG_TOPIC_NAME, lambda msg: found_ar_tag(msg, self.shared_data), 10)

@@ -7,7 +7,7 @@ OAKD_POINTCLOUD_TOPIC = "/autonomous/obstacle_avoidance/oakd/pointcloud"
 
 def generate_launch_description():
 
-        pointcloud_node = Node(
+    pointcloud_node = Node(
         package="depth_image_proc",
         executable="point_cloud_xyz_node",
         name="oakd_pointcloud_node",
