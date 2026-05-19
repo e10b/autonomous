@@ -2,6 +2,7 @@ from autonomous_state_machine.states.state_class import State
 from std_msgs.msg import Float64MultiArray
 import math
 from time import time
+import numpy as np
 from autonomous_state_machine.align import AlignAndMove
 
 class NewObstacleAvoidanceControllerState(State):
@@ -68,6 +69,46 @@ class NewObstacleAvoidanceControllerState(State):
         vel_msg.data = [-base_speed, -base_speed]
         self.shared_data.auton_publisher.publish(vel_msg)
 
+    def _rebuild_main_controller_from_current_path(self):
+        controller = self.shared_data.controller
+        cur_position = self.shared_data.cur_position
+
+        # If we don't have the main controller or current pose, we can't rebuild
+        if controller is None or cur_position is None:
+            return False
+
+        # Prefer using the main controller's final goal if available.
+        if hasattr(controller, "final") and controller.final is not None:
+            final_pt = tuple(controller.final.tolist()) if hasattr(controller.final, 'tolist') else tuple(controller.final)
+            # Build a simple 2-point path: [current_pos, final_goal]
+            self.shared_data.new_waypoints = [cur_position, final_pt]
+            self.shared_data.new_waypoints_flag = True
+            return True
+
+        # Fallback: if controller exposes user_pts, attempt to use them (older behavior)
+        if not hasattr(controller, "user_pts"):
+            return False
+
+        user_pts = list(controller.user_pts)
+        if len(user_pts) == 0:
+            return False
+
+        cur = np.array(cur_position)
+        closest_idx = int(np.argmin([np.linalg.norm(np.array(pt) - cur) for pt in user_pts]))
+        remaining_pts = user_pts[closest_idx:]
+
+        if len(remaining_pts) == 0:
+            return False
+
+        # Rebuild the main path from the current rover position using remaining points.
+        if np.linalg.norm(np.array(remaining_pts[0]) - cur) < 1e-6:
+            self.shared_data.new_waypoints = [cur_position] + remaining_pts[1:]
+        else:
+            self.shared_data.new_waypoints = [cur_position] + remaining_pts
+
+        self.shared_data.new_waypoints_flag = True
+        return True
+
     def step(self):
         with self.shared_data.mutex:
             if self.shared_data.new_obstacle_avoidance_waypoints_flag:
@@ -127,9 +168,10 @@ class NewObstacleAvoidanceControllerState(State):
                     if controller.user_unreached_pts:
                         controller.start_next_target()
                         return self.state_instance.new_obstacle_avoidance_controller_state
-                    # Otherwise finish obstacle avoidance
+                    # Otherwise finish obstacle avoidance and rebuild the main path
                     print("[OA] ALL WAYPOINTS COMPLETED (AlignAndMove)")
                     self._publish_stop()
+                    path_rebuilt = self._rebuild_main_controller_from_current_path()
                     # clear flags and controller so DriveState resumes cleanly
                     self.shared_data.obstacle_avoidance_running = False
                     self.shared_data.new_obstacle_avoidance_waypoints_flag = False
@@ -137,5 +179,7 @@ class NewObstacleAvoidanceControllerState(State):
                     self.phase = "idle"
                     self.phase_start_time = None
                     self.shared_data.obstacle_avoidance_controller = None
+                    if path_rebuilt:
+                        return self.state_instance.new_controller_state
                     return self.state_instance.drive_state
                 return self.state_instance.new_obstacle_avoidance_controller_state

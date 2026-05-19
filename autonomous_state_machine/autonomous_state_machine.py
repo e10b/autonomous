@@ -30,7 +30,6 @@ from autonomous_state_machine.states.new_controller_state import NewControllerSt
 from autonomous_state_machine.states.retry_state import RetryState
 from autonomous_state_machine.states.new_obstacle_avoidance_controller_state import NewObstacleAvoidanceControllerState
 from autonomous_state_machine.states.drive_state import DriveState
-from autonomous_state_machine.states.obstacle_recovery_state import ObstacleRecoveryState
 from autonomous_state_machine.states.validating_state import ValidatingState
 # from autonomous_state_machine.states.heartbeat_state import HeartbeatState
 from autonomous_state_machine.states.go_to_object_state import GoToObjectState
@@ -109,7 +108,6 @@ class AutonomousStateMachine(Node):
         self.state_instance.new_controller_state = NewControllerState(self.shared_data, self.state_instance)
         self.state_instance.new_obstacle_avoidance_controller_state = NewObstacleAvoidanceControllerState(self.shared_data, self.state_instance)
         self.state_instance.drive_state = DriveState(self.shared_data, self.state_instance)
-        self.state_instance.obstacle_recovery_state = ObstacleRecoveryState(self.shared_data, self.state_instance)
         self.state_instance.validating_state = ValidatingState(self.shared_data, self.state_instance)
         self.state_instance.goal_state = GoalState(self.shared_data, self.state_instance)
         self.state_instance.retry_state = RetryState(self.shared_data, self.state_instance)

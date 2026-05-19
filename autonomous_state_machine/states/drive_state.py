@@ -109,8 +109,6 @@ class DriveState(State):
             # Check if goal is reached
             if controller.did_reach_goal():
                 self.log("Goal reached!")
-                if self.shared_data.obstacle_avoidance_running:
-                    return self.state_instance.obstacle_recovery_state
                 return self.state_instance.validating_state
             # Check for AR tag detection
             if self.shared_data.should_look_for_ar and self.shared_data.found_ar_flag:
