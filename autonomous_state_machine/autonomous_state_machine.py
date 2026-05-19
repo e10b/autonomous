@@ -7,6 +7,7 @@
 """http://wiki.ros.org/mavros for topic ref"""
 
 from autonomous_state_machine.utils import on_new_gps_msg, on_new_heading_msg, on_receive_new_gps_waypoint, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg, on_new_global_odom_msg#, heartbeat_reset
+import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
@@ -15,6 +16,7 @@ from nav_msgs.msg import Odometry
 from std_msgs.msg import Float64MultiArray, Float64, String, Bool
 from sensor_msgs.msg import NavSatFix
 from time import time
+from autonomous_state_machine.global_map import GlobalMapManager
 
 # from autonomous_state_machine.gps_to_ned import GPS_2_NED
 # from autonomous_state_machine.pp import PurePursuit
@@ -38,6 +40,7 @@ from autonomous_state_machine.states.backward_spiral_state import BackwardSpiral
 from autonomous_state_machine.states.go_to_ar_state import GoToARState
 from autonomous_state_machine.states.circle_state import CircleState
 from autonomous_state_machine.shared_data import SharedData
+import autonomous_state_machine.config as config
 
 RATE = 30
 
@@ -51,6 +54,16 @@ class AutonomousStateMachine(Node):
 
         self.shared_data.node = self
         self.shared_data.logger = self.get_logger()
+        self.shared_data.global_map = GlobalMapManager(
+            map_size_m=config.PERSISTENT_GRID_SIZE,
+            overlap_m=config.OVERLAP_SIZE,
+            shift_m=config.SHIFT_SIZE,
+            cell_size_m=config.GRID_CELL_SIZE,
+            free_space_decay=config.CONFIDENCE_DEGRADED_AMOUNT,
+            obstacle_confidence_increase=config.CONFIDENCE_ADDED_AMOUNT,
+            obstacle_threshold=config.CONFIDENCE_THRESHOLD,
+            logger=self.get_logger()
+        )
         self.build_states()
         self.setup_subscribers()
         self.setup_publishers()
@@ -59,8 +72,54 @@ class AutonomousStateMachine(Node):
         self.last_state = self.cur_state
         self.cur_state.on_enter()
 
+        self._map_print_counter = 0
         self.timer = self.create_timer(1.0 / RATE, self._tick)
 
+
+    def _on_occupancy_grid(self, msg: Float64MultiArray):
+        pos = self.shared_data.cur_position
+        yaw = self.shared_data.cur_heading
+        if pos is None or yaw is None:
+            return
+        if len(msg.layout.dim) < 2:
+            return
+        grid_x = msg.layout.dim[0].size
+        grid_z = msg.layout.dim[1].size
+        if len(msg.data) != grid_x * grid_z:
+            return
+        local_grid = np.array(msg.data, dtype=np.uint8).reshape(grid_x, grid_z)
+        self.shared_data.global_map.update_map(local_grid, pos[0], pos[1], yaw)
+
+        # Trigger avoidance directly from the occupancy grid so we don't depend on
+        # obstacle_detection's local Theta* succeeding.  The occupancy grid is always
+        # published; the path topic is only published when the local planner finds a
+        # route, so a wide / close obstacle silently drops the trigger.
+        _OA_CORRIDOR_HALF = 8   # cells — matches obstacle_detection (ceil(0.75 / 0.10))
+        _OA_COOLDOWN      = 1.0 + config.BACKUP_DURATION
+        cx = grid_x // 2
+        top = max(0, cx - _OA_CORRIDOR_HALF)
+        bot = min(grid_x, cx + _OA_CORRIDOR_HALF + 1)
+        if not local_grid[top:bot, :].any():
+            return
+
+        with self.shared_data.mutex:
+            if time() - self.shared_data.last_oa_trigger_time < _OA_COOLDOWN:
+                return
+            if not self.shared_data.gps_ready or not self.shared_data.new_waypoints:
+                return
+            goal = self.shared_data.new_waypoints[-1]
+            path = self.shared_data.global_map.get_path(pos[0], pos[1], goal[0], goal[1])
+            if not path:
+                print("[OA] Corridor blocked but get_path returned empty — map not ready?")
+                return
+            if self.shared_data.obstacle_avoidance_running:
+                print("[OA] Reattempt: replacing pending OA waypoints")
+                self.shared_data.obstacle_avoidance_new_waypoints = []
+                self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+            self.shared_data.obstacle_avoidance_new_waypoints = path
+            self.shared_data.new_obstacle_avoidance_waypoints_flag = True
+            self.shared_data.last_oa_trigger_time = time()
+            print(f"[OA] Triggered from occupancy grid, path={len(path)} waypoints")
 
     def _tick(self):
         if self.shared_data.new_waypoints_flag:
@@ -77,6 +136,15 @@ class AutonomousStateMachine(Node):
         if time() - self.shared_data.latest_ar_found > 2:
             self.shared_data.found_ar_flag = False
 
+        if config.PRINT_ASCII_MAP:
+            self._map_print_counter += 1
+            if self._map_print_counter >= RATE:
+                self._map_print_counter = 0
+                pos = self.shared_data.cur_position
+                if pos is not None:
+                    path = self.shared_data.obstacle_avoidance_new_waypoints or None
+                    self.shared_data.global_map.print_ascii_map(pos[0], pos[1], path_waypoints=path)
+
     def setup_subscribers(self):
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, durability=QoSDurabilityPolicy.VOLATILE, depth=10)
 
@@ -92,6 +160,7 @@ class AutonomousStateMachine(Node):
         self.create_subscription(Float64MultiArray, self.shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME, lambda msg: on_receive_new_obstacle_avoidance_waypoints(msg, self.shared_data), 10)
         self.create_subscription(Odometry, self.shared_data.LOCAL_ODOM_TOPIC, lambda msg: on_new_local_odom_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(Odometry, self.shared_data.GLOBAL_ODOM_TOPIC, lambda msg: on_new_global_odom_msg(msg, self.shared_data), qos_profile)
+        self.create_subscription(Float64MultiArray, '/obstacle_avoidance/occupancy_grid', self._on_occupancy_grid, 10)
         # self.create_subscription(Bool, self.shared_data.HEARTBEAT_TOPIC, lambda msg: heartbeat_reset(msg, self.shared_data), 10)
         self.get_logger().info("[StartState] Subscriber initialization complete.")
 

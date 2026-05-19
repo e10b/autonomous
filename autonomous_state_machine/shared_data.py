@@ -126,4 +126,6 @@ class SharedData():
     start_heading = None  # heading stamp to mark when we end spinning
     obstacle_avoidance_controller = None
 
-    logger        = None
+    global_map           = None   # GlobalMapManager instance
+    last_oa_trigger_time = 0.0   # timestamp of last obstacle avoidance trigger
+    logger               = None

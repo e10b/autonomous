@@ -4,6 +4,7 @@ import math
 from time import time
 import numpy as np
 from autonomous_state_machine.align import AlignAndMove
+import autonomous_state_machine.config as config
 
 class NewObstacleAvoidanceControllerState(State):
     def __init__(self, shared_data, state_instance):
@@ -22,7 +23,7 @@ class NewObstacleAvoidanceControllerState(State):
         # Phase logic: reverse briefly, then follow waypoints
         self.phase = "idle"
         self.phase_start_time = None
-        self.reverse_duration = 10.0  # seconds to back up before following the path
+        self.reverse_duration = config.BACKUP_DURATION
 
     def _load_shared_waypoints(self):
         if not self.shared_data.new_obstacle_avoidance_waypoints_flag:
