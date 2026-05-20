@@ -14,7 +14,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Float64MultiArray, Float64, String, Bool
-from sensor_msgs.msg import NavSatFix
+from sensor_msgs.msg import NavSatFix, PointCloud2
 from time import time
 from autonomous_state_machine.global_map import GlobalMapManager
 
@@ -76,29 +76,69 @@ class AutonomousStateMachine(Node):
         self.timer = self.create_timer(1.0 / RATE, self._tick)
 
 
-    def _on_occupancy_grid(self, msg: Float64MultiArray):
+    @staticmethod
+    def _parse_pointcloud2_xyz(msg: PointCloud2) -> np.ndarray:
+        """
+        Returns an (N, 3) float32 array of valid (x, y, z) points from a PointCloud2.
+        Parses the raw byte buffer directly for performance — assumes x, y, z are
+        FLOAT32 fields (datatype=7), which is always true for depth_image_proc output.
+        """
+        n = msg.width * msg.height
+        step = msg.point_step
+        if n == 0 or step == 0 or step % 4 != 0:
+            return np.empty((0, 3), dtype=np.float32)
+
+        # Interpret the entire data buffer as a float32 array and reshape to (N, floats_per_point)
+        raw = np.frombuffer(bytes(msg.data), dtype=np.float32).reshape(n, step // 4)
+
+        # Locate the float32 column index for each field using its byte offset
+        col = {f.name: f.offset // 4 for f in msg.fields if f.datatype == 7}
+        x = raw[:, col['x']]
+        y = raw[:, col['y']]
+        z = raw[:, col['z']]
+
+        valid = np.isfinite(x) & np.isfinite(y) & np.isfinite(z)
+        return np.stack([x[valid], y[valid], z[valid]], axis=1)
+
+    def _on_pointcloud(self, msg: PointCloud2):
         pos = self.shared_data.cur_position
         yaw = self.shared_data.cur_heading
         if pos is None or yaw is None:
             return
-        if len(msg.layout.dim) < 2:
+
+        CELLS = config.PC_LOCAL_GRID_CELLS
+        CELL  = config.GRID_CELL_SIZE
+        half  = CELLS / 2.0
+
+        pts = self._parse_pointcloud2_xyz(msg)
+        if len(pts) == 0:
             return
-        grid_x = msg.layout.dim[0].size
-        grid_z = msg.layout.dim[1].size
-        if len(msg.data) != grid_x * grid_z:
-            return
-        local_grid = np.array(msg.data, dtype=np.uint8).reshape(grid_x, grid_z)
+
+        cam_x, cam_y, cam_z = pts[:, 0], pts[:, 1], pts[:, 2]
+
+        # OAK-D optical frame: x=right, y=down, z=forward.
+        # Keep only points in the obstacle height band and within the 2m forward grid.
+        mask = (
+            (cam_y >= config.PC_HEIGHT_MIN) & (cam_y <= config.PC_HEIGHT_MAX) &
+            (cam_z >= 0.0)                 & (cam_z < CELLS * CELL)          &
+            (cam_x >= -half * CELL)        & (cam_x <  half * CELL)
+        )
+        cam_x = cam_x[mask]
+        cam_z = cam_z[mask]
+
+        xi = np.clip((cam_x / CELL + half).astype(np.int32), 0, CELLS - 1)
+        zi = np.clip((cam_z / CELL).astype(np.int32),        0, CELLS - 1)
+
+        local_grid = np.zeros((CELLS, CELLS), dtype=np.uint8)
+        local_grid[xi, zi] = 1
+
         self.shared_data.global_map.update_map(local_grid, pos[0], pos[1], yaw)
 
-        # Trigger avoidance directly from the occupancy grid so we don't depend on
-        # obstacle_detection's local Theta* succeeding.  The occupancy grid is always
-        # published; the path topic is only published when the local planner finds a
-        # route, so a wide / close obstacle silently drops the trigger.
-        _OA_CORRIDOR_HALF = 8   # cells — matches obstacle_detection (ceil(0.75 / 0.10))
+        _OA_CORRIDOR_HALF = 8   # cells — half-width of rover body corridor
         _OA_COOLDOWN      = 1.0 + config.BACKUP_DURATION
-        cx = grid_x // 2
+        cx  = CELLS // 2
         top = max(0, cx - _OA_CORRIDOR_HALF)
-        bot = min(grid_x, cx + _OA_CORRIDOR_HALF + 1)
+        bot = min(CELLS, cx + _OA_CORRIDOR_HALF + 1)
         if not local_grid[top:bot, :].any():
             return
 
@@ -119,7 +159,7 @@ class AutonomousStateMachine(Node):
             self.shared_data.obstacle_avoidance_new_waypoints = path
             self.shared_data.new_obstacle_avoidance_waypoints_flag = True
             self.shared_data.last_oa_trigger_time = time()
-            print(f"[OA] Triggered from occupancy grid, path={len(path)} waypoints")
+            print(f"[OA] Triggered from pointcloud, path={len(path)} waypoints")
 
     def _tick(self):
         if self.shared_data.new_waypoints_flag:
@@ -160,7 +200,7 @@ class AutonomousStateMachine(Node):
         self.create_subscription(Float64MultiArray, self.shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME, lambda msg: on_receive_new_obstacle_avoidance_waypoints(msg, self.shared_data), 10)
         self.create_subscription(Odometry, self.shared_data.LOCAL_ODOM_TOPIC, lambda msg: on_new_local_odom_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(Odometry, self.shared_data.GLOBAL_ODOM_TOPIC, lambda msg: on_new_global_odom_msg(msg, self.shared_data), qos_profile)
-        self.create_subscription(Float64MultiArray, '/obstacle_avoidance/occupancy_grid', self._on_occupancy_grid, 10)
+        self.create_subscription(PointCloud2, '/autonomous/obstacle_avoidance/oakd/pointcloud', self._on_pointcloud, qos_profile)
         # self.create_subscription(Bool, self.shared_data.HEARTBEAT_TOPIC, lambda msg: heartbeat_reset(msg, self.shared_data), 10)
         self.get_logger().info("[StartState] Subscriber initialization complete.")
 
