@@ -172,6 +172,22 @@ class NewObstacleAvoidanceControllerState(State):
                     # Otherwise finish obstacle avoidance and rebuild the main path
                     print("[OA] ALL WAYPOINTS COMPLETED (AlignAndMove)")
                     self._publish_stop()
+                    # Check goal proximity using GPS position directly to avoid odom
+                    # drift that accumulates during OA maneuvers.
+                    _main_ctrl = self.shared_data.controller
+                    _cur_pos   = self.shared_data.cur_position
+                    if (_main_ctrl is not None and _cur_pos is not None
+                            and hasattr(_main_ctrl, 'final') and _main_ctrl.final is not None):
+                        _dist = float(np.linalg.norm(np.array(_cur_pos) - _main_ctrl.final))
+                        if _dist < 2.0:
+                            print(f"[OA] Rover at goal ({_dist:.2f}m < 2.0m) — going to validating_state")
+                            self.shared_data.obstacle_avoidance_running = False
+                            self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+                            self.shared_data.obstacle_avoidance_new_waypoints = []
+                            self.phase = "idle"
+                            self.phase_start_time = None
+                            self.shared_data.obstacle_avoidance_controller = None
+                            return self.state_instance.validating_state
                     path_rebuilt = self._rebuild_main_controller_from_current_path()
                     # clear flags and controller so DriveState resumes cleanly
                     self.shared_data.obstacle_avoidance_running = False
