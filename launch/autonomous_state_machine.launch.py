@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from autonomous_state_machine.config import SIMULATION
 
 OAKD_DEPTH_IMAGE_TOPIC = "/autonomous/obstacle_avoidance/oakd/depth/image_rect"
 OAKD_DEPTH_CAMERA_INFO_TOPIC = "/autonomous/obstacle_avoidance/oakd/depth/camera_info"
@@ -30,5 +31,8 @@ def generate_launch_description():
         name='autonomous_state_machine',
         output='screen',
     )
+
+    if SIMULATION: 
+        return LaunchDescription([autonomous_state_machine])
 
     return LaunchDescription([pointcloud_node, autonomous_state_machine])

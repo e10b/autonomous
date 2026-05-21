@@ -9,6 +9,9 @@ GRID_CELL_SIZE = 0.10
 # Debugging
 PRINT_ASCII_MAP = True
 
+# Simulation Flag: Turns off degradation for sim, turns it on for real
+SIMULATION = True
+
 # Obstacle Avoidance
 BACKUP_DURATION = 2.0
 OA_COOLDOWN_EXTRA = 1.0        # extra seconds added to BACKUP_DURATION for OA re-trigger cooldown
@@ -23,9 +26,8 @@ PC_LOCAL_GRID_CELLS = 20   # lateral × forward cells; 20 × 0.10m = 2m range
 PC_HEIGHT_MIN = -0.5       # meters below camera — ignore points above this
 PC_HEIGHT_MAX = 0.25       # meters below camera — ignore ground plane below this
 PC_MIN_POINTS_PER_CELL = 1000 # minimum point count in a cell to mark it as occupied
-
-# Simulation Flag: Turns off degradation for sim, turns it on for real
-SIMULATION = False
+if SIMULATION:
+    PC_MIN_POINTS_PER_CELL = 1  # in sim, we trust the pointcloud more — any points in a cell mark it occupied
 
 # Confidence Parameters
 CONFIDENCE_THRESHOLD = 60
