@@ -71,37 +71,44 @@ class NewObstacleAvoidanceControllerState(State):
         self.shared_data.auton_publisher.publish(vel_msg)
 
     def _rebuild_main_controller_from_current_path(self):
-        controller = self.shared_data.controller
+        # new_waypoints must stay in GPS/NED frame — PurePursuit is initialized with
+        # GPS/NED waypoints in NewControllerState and NewControllerState.step() converts
+        # them back to lat/lon for visualization.
         cur_position = self.shared_data.cur_position
+        controller   = self.shared_data.controller
 
-        # If we don't have the main controller or current pose, we can't rebuild
         if controller is None or cur_position is None:
             return False
 
-        # Prefer using the main controller's final goal if available.
+        # Prefer goal_map_xy (GPS/NED) as the destination; consistent frame with PP.
+        goal_xy = self.shared_data.goal_map_xy
+        if goal_xy is not None:
+            self.shared_data.new_waypoints = [cur_position, goal_xy]
+            self.shared_data.new_waypoints_flag = True
+            return True
+
+        # Fall back to controller.final (also GPS/NED — set from GPS waypoints).
         if hasattr(controller, "final") and controller.final is not None:
             final_pt = tuple(controller.final.tolist()) if hasattr(controller.final, 'tolist') else tuple(controller.final)
-            # Build a simple 2-point path: [current_pos, final_goal]
             self.shared_data.new_waypoints = [cur_position, final_pt]
             self.shared_data.new_waypoints_flag = True
             return True
 
-        # Fallback: if controller exposes user_pts, attempt to use them (older behavior)
+        # Fallback: use remaining user_pts from the existing controller.
         if not hasattr(controller, "user_pts"):
             return False
 
         user_pts = list(controller.user_pts)
-        if len(user_pts) == 0:
+        if not user_pts:
             return False
 
         cur = np.array(cur_position)
         closest_idx = int(np.argmin([np.linalg.norm(np.array(pt) - cur) for pt in user_pts]))
         remaining_pts = user_pts[closest_idx:]
 
-        if len(remaining_pts) == 0:
+        if not remaining_pts:
             return False
 
-        # Rebuild the main path from the current rover position using remaining points.
         if np.linalg.norm(np.array(remaining_pts[0]) - cur) < 1e-6:
             self.shared_data.new_waypoints = [cur_position] + remaining_pts[1:]
         else:
@@ -109,6 +116,26 @@ class NewObstacleAvoidanceControllerState(State):
 
         self.shared_data.new_waypoints_flag = True
         return True
+
+    def _goal_reached_transition(self):
+        """If odom position is within 2m of goal_odom, perform cleanup and return
+        validating_state. Returns None if the goal has not been reached yet."""
+        _cur_pos = self.shared_data.local_odom_position
+        _goal    = self.shared_data.goal_odom
+        if _cur_pos is None or _goal is None:
+            return None
+        if float(np.linalg.norm(np.array(_cur_pos) - np.array(_goal))) >= 2.0:
+            return None
+        print(f"[OA] Rover at goal ({np.linalg.norm(np.array(_cur_pos)-np.array(_goal)):.2f}m) — entering validating_state")
+        if self.shared_data.controller is not None:
+            self.shared_data.controller.reached_goal = True
+        self.shared_data.obstacle_avoidance_running = False
+        self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+        self.shared_data.obstacle_avoidance_new_waypoints = []
+        self.phase = "idle"
+        self.phase_start_time = None
+        self.shared_data.obstacle_avoidance_controller = None
+        return self.state_instance.validating_state
 
     def step(self):
         with self.shared_data.mutex:
@@ -153,6 +180,11 @@ class NewObstacleAvoidanceControllerState(State):
             
             # Phase 2: Follow waypoints after reverse using AlignAndMove controller
             if self.phase == "follow":
+                # Every-tick goal check — stop immediately if within 2m even mid-path
+                result = self._goal_reached_transition()
+                if result is not None:
+                    return result
+
                 # Ensure we have an AlignAndMove controller
                 controller = self.shared_data.obstacle_avoidance_controller
                 if controller is None:
@@ -169,25 +201,12 @@ class NewObstacleAvoidanceControllerState(State):
                     if controller.user_unreached_pts:
                         controller.start_next_target()
                         return self.state_instance.new_obstacle_avoidance_controller_state
-                    # Otherwise finish obstacle avoidance and rebuild the main path
+                    # All waypoints done — check goal proximity then rebuild main path
                     print("[OA] ALL WAYPOINTS COMPLETED (AlignAndMove)")
                     self._publish_stop()
-                    # Check goal proximity using GPS position directly to avoid odom
-                    # drift that accumulates during OA maneuvers.
-                    _main_ctrl = self.shared_data.controller
-                    _cur_pos   = self.shared_data.cur_position
-                    if (_main_ctrl is not None and _cur_pos is not None
-                            and hasattr(_main_ctrl, 'final') and _main_ctrl.final is not None):
-                        _dist = float(np.linalg.norm(np.array(_cur_pos) - _main_ctrl.final))
-                        if _dist < 2.0:
-                            print(f"[OA] Rover at goal ({_dist:.2f}m < 2.0m) — going to validating_state")
-                            self.shared_data.obstacle_avoidance_running = False
-                            self.shared_data.new_obstacle_avoidance_waypoints_flag = False
-                            self.shared_data.obstacle_avoidance_new_waypoints = []
-                            self.phase = "idle"
-                            self.phase_start_time = None
-                            self.shared_data.obstacle_avoidance_controller = None
-                            return self.state_instance.validating_state
+                    result = self._goal_reached_transition()
+                    if result is not None:
+                        return result
                     path_rebuilt = self._rebuild_main_controller_from_current_path()
                     # clear flags and controller so DriveState resumes cleanly
                     self.shared_data.obstacle_avoidance_running = False

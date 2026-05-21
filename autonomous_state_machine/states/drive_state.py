@@ -36,25 +36,9 @@ class DriveState(State):
             heading = math.atan2(math.sin(heading), math.cos(heading))
             effective_speed = clamp(self.shared_data.cur_speed, 0.0, self.shared_data.MAX_AUTON_SPEED)
 
-            if self.shared_data.odom_bias_set and self.shared_data.odom_ready:
-                ox, oy = self.shared_data.local_odom_position
-                bx, by = self.shared_data.odom_bias
-
-                if (self.shared_data.segment_distance >= SharedData.SEGMENT_LENGTH
-                        and self.shared_data.global_odom_ready
-                        and self.shared_data.gps_ned_to_map_offset is not None):
-                    gx, gy = self.shared_data.global_odom_position
-                    dx_off, dy_off = self.shared_data.gps_ned_to_map_offset
-                    recalib = (gx + dx_off, gy + dy_off)
-                    self.shared_data.odom_bias = (recalib[0] - ox, recalib[1] - oy) # translates everything into the GPS_2_NED frame
-                    bx, by = self.shared_data.odom_bias
-                    self.shared_data.segment_distance = 0.0
-
-                effective_pos = (ox + bx, oy + by)
-            else:
-                effective_pos = self.shared_data.cur_position
-
-            cur_pose = [effective_pos[0], effective_pos[1], heading]
+            # PP was initialized with GPS/NED waypoints (new_waypoints from GPS_2_NED),
+            # so pass cur_position (GPS/NED) directly — no odom drift risk.
+            cur_pose = [self.shared_data.cur_position[0], self.shared_data.cur_position[1], heading]
             steering_radius = controller.calc_steering(cur_pose)
 
             # adds steering clamp to prevent small/irrelevant changes from causing a rover spin

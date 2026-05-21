@@ -1,25 +1,31 @@
 """
 Global Map Manager for Autonomous Navigation
 
-This module provides a memory-efficient, sliding-window probabilistic occupancy grid 
-for persistent obstacle tracking and global pathfinding. It keeps the robot safely 
-padded in a bounds-checked arena, gracefully "rolling" the memory matrix when the 
-robot approaches an edge. This prevents infinite memory growth while ensuring the 
+This module provides a memory-efficient, sliding-window probabilistic occupancy grid
+for persistent obstacle tracking and global pathfinding. It keeps the robot safely
+padded in a bounds-checked arena, gracefully "rolling" the memory matrix when the
+robot approaches an edge. This prevents infinite memory growth while ensuring the
 robot never loses track of obstacles in its immediate vicinity.
+
+**Coordinate frame:** all (x, y) inputs and outputs are in the **odom frame**
+(from `/autonomous/localization/odometry/local`). The map origin is placed at the
+robot's odom position on the first call to `initialize_origin`. Theta* waypoints
+returned by `get_path` are therefore also in odom frame and can be passed directly
+to `AlignAndMove` for obstacle-avoidance path following.
 
 Class Overview:
     GlobalMapManager: The primary class maintaining the continuous 2D numpy grid.
 
 Function Overview:
-    - initialize_origin: Centers the mathematical map frame on the robot at startup.
-    - check_and_shift: Enforces boundary padding limits. If the robot strays too close 
+    - initialize_origin: Centers the map origin on the robot at startup (odom frame).
+    - check_and_shift: Enforces boundary padding limits. If the robot strays too close
       to the map's edge, it shifts the entire array and origin to keep it centered.
-    - update_map: Projects a short-range local grid into the global frame and applies 
+    - update_map: Projects a short-range local grid into the global frame and applies
       clamped probabilistic scoring (0=free, 100=obstacle, 50=unknown) to filter noise.
-    - clip_target_to_bounds: Ray-traces a vector to distant GPS/NED targets and clips 
-      them to the exact edge of the current loaded map boundary, handling type conversions.
-    - get_path: Executes the Theta* algorithm across the global map (with Minkowski 
-      inflation for robot radius) to return smooth, any-angle global waypoints.
+    - clip_target_to_bounds: Ray-traces a vector to a goal and clips it to the exact
+      edge of the current loaded map boundary.
+    - get_path: Executes the Theta* algorithm across the global map (with Minkowski
+      inflation for robot radius) to return smooth, any-angle odom-frame waypoints.
 """
 import numpy as np
 import logging
@@ -65,7 +71,7 @@ class GlobalMapManager:
         # Initialize grid with 50 (unknown). 0 = free, 100 = obstacle.
         self.grid = np.full((self.grid_size, self.grid_size), 50, dtype=np.uint8)
         
-        # Global origin (top-left corner) in NED coordinates.
+        # Global origin (top-left corner) in odom-frame coordinates.
         # Start as None, will be set on the first position update.
         self.global_origin_x = None
         self.global_origin_y = None
@@ -93,7 +99,7 @@ class GlobalMapManager:
         
         args:
             local_grid: 2D numpy array (20x20) where 1=obstacle, 0=free.
-            robot_x, robot_y: Global position in meters.
+            robot_x, robot_y: Robot position in odom frame (meters).
             robot_yaw: Math heading in radians (0=East, CCW+).
         """
         # Ensure we have an origin initialized
@@ -205,13 +211,15 @@ class GlobalMapManager:
     def clip_target_to_bounds(self, robot_x, robot_y, target_a, target_b, target_type='NED', gps_converter=None, margin_m=1.0):
         """
         Draws a vector from the robot to the target. If the target is outside the current
-        global map bounds, it finds the exact intersection point with the map edge (minus a 
+        global map bounds, it finds the exact intersection point with the map edge (minus a
         small safety margin) and returns it. If the target is inside, it returns the target.
-        
+
         args:
-            target_a, target_b: Coordinates (X, Y for 'NED' or Lat, Lon for 'lat_lon')
-            target_type: 'NED' or 'lat_lon'
-            gps_converter: An instance of GPS_2_NED (required if target_type is 'lat_lon')
+            robot_x, robot_y: Robot position in odom frame (meters).
+            target_a, target_b: Target position in odom frame (X, Y). The 'lat_lon' path
+                is kept for backward compatibility but is not used in normal operation.
+            target_type: 'NED' (default, odom-frame XY) or 'lat_lon' (legacy).
+            gps_converter: An instance of GPS_2_NED (required only if target_type is 'lat_lon').
         """
         if self.global_origin_x is None or self.global_origin_y is None:
             if target_type == 'NED':
@@ -220,7 +228,7 @@ class GlobalMapManager:
                 return gps_converter.gps_to_xy(target_a, target_b)
             return robot_x, robot_y
 
-        # Convert coordinates to NED if needed
+        # Convert lat/lon to odom-frame XY if needed (legacy path, not used normally)
         if target_type == 'lat_lon':
             if gps_converter is None:
                 self.logger.error("gps_converter must be provided to convert lat_lon targets!")
@@ -266,7 +274,8 @@ class GlobalMapManager:
     def get_path(self, robot_x, robot_y, target_a, target_b, target_type='NED', gps_converter=None, robot_radius_m=1.0):
         """
         Calculates a path from the robot to a target coordinate using Theta*.
-        Returns a list of (x, y) global coordinate waypoints.
+        All inputs and outputs are in odom frame.
+        Returns a list of (x, y) odom-frame waypoints.
         """
         if self.global_origin_x is None or self.global_origin_y is None:
             return []
@@ -316,7 +325,7 @@ class GlobalMapManager:
             self.logger.warning("Theta* failed to find a path to the target!")
             return []
 
-        # 4. Convert indices back to global NED coordinate waypoints
+        # 4. Convert indices back to odom-frame coordinate waypoints
         path_meters = []
         for (c, r) in path_idx:
             px = self.global_origin_x + (c * self.cell_size_m)
@@ -432,7 +441,7 @@ class GlobalMapManager:
 
         return None
 
-    def print_ascii_map(self, robot_x, robot_y, window=40, robot_radius_m=1.0, path_waypoints=None):
+    def print_ascii_map(self, robot_x, robot_y, window=40, robot_radius_m=1.0, path_waypoints=None, goal=None):
         """Writes a localized ASCII representation of the grid to a file for external viewing."""
         if self.global_origin_x is None or self.global_origin_y is None:
             print("DEBUG: Global origin not set, cannot print map.")
@@ -442,6 +451,11 @@ class GlobalMapManager:
 
         robot_c = int((robot_x - self.global_origin_x) / self.cell_size_m)
         robot_r = int((robot_y - self.global_origin_y) / self.cell_size_m)
+
+        goal_c = goal_r = None
+        if goal is not None:
+            goal_c = int((goal[0] - self.global_origin_x) / self.cell_size_m)
+            goal_r = int((goal[1] - self.global_origin_y) / self.cell_size_m)
 
         min_c = max(0, robot_c - window // 2)
         max_c = min(self.grid_size, robot_c + window // 2)
@@ -498,7 +512,7 @@ class GlobalMapManager:
                         r += sr
 
         out_str = f"--- Center Window ({window}x{window} cells) ---\n"
-        out_str += "Legend: [R]=Rover | [##]=Obstacle | [++]=Inflated | [..]=Free | [  ]=Unknown | [_/\\|]=Path\n"
+        out_str += "Legend: [R]=Rover | [G]=Goal | [##]=Obstacle | [++]=Inflated | [..]=Free | [  ]=Unknown | [_/\\|]=Path\n"
 
         for r in range(min_r, max_r):
             row_str = ""
@@ -507,6 +521,8 @@ class GlobalMapManager:
                 wr = r - pad_min_r
                 if c == robot_c and r == robot_r:
                     row_str += " R "
+                elif goal_c is not None and c == goal_c and r == goal_r:
+                    row_str += " G "
                 elif self.grid[c, r] > self.obstacle_threshold:
                     row_str += "## "
                 elif inflated_window[wc, wr] == 1:

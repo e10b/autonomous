@@ -17,7 +17,7 @@ class SharedData():
     OBJ_SPIRAL_COILS = 8
     
     SEGMENT_LENGTH   = 3.0
-    LOCAL_ODOM_TOPIC  = "/odometry/local"
+    LOCAL_ODOM_TOPIC  = "/autonomous/localization/odometry/local"
     GLOBAL_ODOM_TOPIC = "/odometry/global"
 
     AR_TIMEOUT = 20
@@ -66,6 +66,10 @@ class SharedData():
     odom_bias_set         = False
     gps_ned_to_map_offset = None       # (dx, dy) offset from map frame to GPS_2_NED frame, set once at startup
     segment_distance      = 0.0        # meters traveled since last recalibration
+
+    goal_map_xy  = None   # final goal in GPS_2_NED (map) frame; set when waypoints arrive
+    goal_odom    = None   # final goal in odom frame; set via TF2 when goal_dirty is True
+    goal_dirty   = False  # set True when goal_map_xy changes; cleared after TF2 transform
 
     gps_converter = None   # given lat and long spits out x and y
     gps_time = None   # timer to register time between new gps receipts

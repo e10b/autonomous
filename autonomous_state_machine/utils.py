@@ -85,6 +85,8 @@ def on_receive_new_gps_waypoint(gps_waypoint_list: Float64MultiArray, shared_dat
             shared_data.new_waypoints.append(xy)
 
         shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
+        shared_data.goal_map_xy = tuple(shared_data.new_waypoints[-1])
+        shared_data.goal_dirty  = True
         shared_data.new_waypoints_flag = True
         shared_data.obstacle_avoidance_running = False
         shared_data.new_obstacle_avoidance_waypoints_flag = False

@@ -49,10 +49,10 @@ class AlignAndMove():
             return True
 
         # Need position and heading
-        if shared_data.cur_position is None or shared_data.cur_heading is None:
+        if shared_data.local_odom_position is None or shared_data.cur_heading is None:
             return False
 
-        robot_x, robot_z = shared_data.cur_position
+        robot_x, robot_z = shared_data.local_odom_position
         print("Waypoint list:", self.user_unreached_pts)
         print(f"[AlignAndMove] Current position: ({robot_x:.2f}, {robot_z:.2f}), heading: {shared_data.cur_heading:.2f} rad")
         target_x, target_z = self.current_target

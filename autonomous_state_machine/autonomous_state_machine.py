@@ -9,9 +9,12 @@
 from autonomous_state_machine.utils import on_new_gps_msg, on_new_heading_msg, on_receive_new_gps_waypoint, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg, on_new_global_odom_msg#, heartbeat_reset
 import numpy as np
 import rclpy
+import rclpy.time
+import tf2_ros
+import tf2_geometry_msgs
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
-from geometry_msgs.msg import TwistStamped
+from geometry_msgs.msg import TwistStamped, PointStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Float64MultiArray, String, Bool
 from sensor_msgs.msg import NavSatFix, PointCloud2, Imu
@@ -65,6 +68,8 @@ class AutonomousStateMachine(Node):
             logger=self.get_logger()
         )
         self.build_states()
+        self._tf_buffer   = tf2_ros.Buffer()
+        self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
         self.setup_subscribers()
         self.setup_publishers()
 
@@ -100,8 +105,21 @@ class AutonomousStateMachine(Node):
         valid = np.isfinite(x) & np.isfinite(y) & np.isfinite(z)
         return np.stack([x[valid], y[valid], z[valid]], axis=1)
 
+    def _transform_goal_to_odom(self, x_map: float, y_map: float):
+        pt = PointStamped()
+        pt.header.frame_id = 'map'
+        pt.header.stamp = rclpy.time.Time().to_msg()  # zero stamp = latest TF
+        pt.point.x = float(x_map)
+        pt.point.y = float(y_map)
+        try:
+            t = self._tf_buffer.lookup_transform('odom', 'map', rclpy.time.Time())
+            out = tf2_geometry_msgs.do_transform_point(pt, t)
+            return (out.point.x, out.point.y)
+        except Exception:
+            return (x_map, y_map)  # fallback: in sim map≡odom so values are identical
+
     def _on_pointcloud(self, msg: PointCloud2):
-        pos = self.shared_data.cur_position
+        pos = self.shared_data.local_odom_position
         yaw = self.shared_data.cur_heading
         if pos is None or yaw is None:
             return
@@ -146,9 +164,11 @@ class AutonomousStateMachine(Node):
         with self.shared_data.mutex:
             if time() - self.shared_data.last_oa_trigger_time < config.OA_COOLDOWN_EXTRA + config.BACKUP_DURATION:
                 return
-            if not self.shared_data.gps_ready or not self.shared_data.new_waypoints:
+            if not self.shared_data.odom_ready or not self.shared_data.new_waypoints:
                 return
-            goal = self.shared_data.new_waypoints[-1]
+            goal = self.shared_data.goal_odom
+            if goal is None:
+                return
             path = self.shared_data.global_map.get_path(pos[0], pos[1], goal[0], goal[1], robot_radius_m=config.OA_ROBOT_RADIUS_M)
             if not path:
                 print("[OA] Corridor blocked but get_path returned empty — map not ready?")
@@ -163,6 +183,32 @@ class AutonomousStateMachine(Node):
             print(f"[OA] Triggered from pointcloud, path={len(path)} waypoints")
 
     def _tick(self):
+        # Re-transform goal to odom only when new waypoints arrived (dirty flag = O(1))
+        if self.shared_data.goal_map_xy is not None and self.shared_data.goal_dirty:
+            self.shared_data.goal_odom = self._transform_goal_to_odom(*self.shared_data.goal_map_xy)
+            self.shared_data.goal_dirty = False
+
+        # Every-tick goal detection in odom frame (mirrors Navigation::remain() in C++)
+        if self.cur_state is self.state_instance.drive_state:
+            odom_pos = self.shared_data.local_odom_position
+            goal     = self.shared_data.goal_odom
+            if odom_pos is None or goal is None:
+                self._goal_skip_counter = getattr(self, '_goal_skip_counter', 0) + 1
+                if self._goal_skip_counter >= RATE:
+                    self._goal_skip_counter = 0
+                    print(f"[GoalCheck] waiting — odom={'SET' if odom_pos else 'NONE'} goal_odom={'SET' if goal else 'NONE'}")
+            else:
+                self._goal_skip_counter = 0
+                d = np.linalg.norm(np.array(odom_pos) - np.array(goal))
+                if d < 2.0:
+                    print(f"[GoalCheck] GOAL REACHED ({d:.2f}m) — entering validating_state")
+                    # Mark PP controller reached so ValidatingState sees did_reach_goal()=True.
+                    # Without this, a freshly-built controller has reached_goal=False and loops:
+                    # _tick→validating→new_controller→drive→_tick→...
+                    if self.shared_data.controller is not None:
+                        self.shared_data.controller.reached_goal = True
+                    self.cur_state = self.state_instance.validating_state
+
         if self.shared_data.new_waypoints_flag:
             self.cur_state = self.state_instance.new_controller_state
 
@@ -181,10 +227,10 @@ class AutonomousStateMachine(Node):
             self._map_print_counter += 1
             if self._map_print_counter >= RATE:
                 self._map_print_counter = 0
-                pos = self.shared_data.cur_position
+                pos = self.shared_data.local_odom_position
                 if pos is not None:
                     path = self.shared_data.obstacle_avoidance_new_waypoints or None
-                    self.shared_data.global_map.print_ascii_map(pos[0], pos[1], path_waypoints=path)
+                    self.shared_data.global_map.print_ascii_map(pos[0], pos[1], path_waypoints=path, goal=self.shared_data.goal_odom)
                 else:
                     try:
                         with open("/tmp/rover_map.txt", "w") as f:
