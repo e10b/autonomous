@@ -14,7 +14,7 @@ import tf2_ros
 import tf2_geometry_msgs
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
-from geometry_msgs.msg import TwistStamped, PointStamped
+from geometry_msgs.msg import TwistStamped, PointStamped, Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Float64MultiArray, String, Bool
 import rclpy.duration
@@ -272,7 +272,7 @@ class AutonomousStateMachine(Node):
 
     def setup_publishers(self):
         self.get_logger().info("[StartState] Initializing publishers...")
-        self.shared_data.auton_publisher = self.create_publisher(Float64MultiArray, self.shared_data.AUTON_TOPIC_NAME, 10)
+        self.shared_data.auton_publisher = self.create_publisher(Twist, self.shared_data.AUTON_TOPIC_NAME, 10)
         self.shared_data.cur_state_publisher = self.create_publisher(String, self.shared_data.CUR_STATE_TOPIC_NAME, 10)
         self.shared_data.auton_path_publisher = self.create_publisher(Float64MultiArray, self.shared_data.AUTON_PATH_NAME, 10)
         self.shared_data.led_publisher = self.create_publisher(Float64MultiArray, self.shared_data.LED_TOPIC_NAME, 10)

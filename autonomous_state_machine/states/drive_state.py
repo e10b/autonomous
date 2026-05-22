@@ -1,6 +1,7 @@
 from autonomous_state_machine.states.state_class import State, StateInstance
 from autonomous_state_machine.shared_data import SharedData
 from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
 from time import time
 import math
 from autonomous_state_machine.utils import clamp
@@ -79,9 +80,10 @@ class DriveState(State):
             left = clamp(left, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             right = clamp(right, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             # self.log(f"heading {self.shared_data.cur_heading} pos {self.shared_data.cur_position} next_pt {controller.waypoints[controller.look_ahead_point_index]}")
-            # Publish velocity message to robot
-            vel_msg = Float64MultiArray()
-            vel_msg.data = [left, right]
+            # Publish velocity message to robot as linear/angular twist.
+            vel_msg = Twist()
+            vel_msg.linear.x = (left + right) / 2.0
+            vel_msg.angular.z = (right - left) / 1.53
             # self.log(f"[DriveState] Publishing to auton_publisher: left={left:.3f}, right={right:.3f}")
             self.shared_data.auton_publisher.publish(vel_msg)
             # print(

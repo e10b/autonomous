@@ -30,7 +30,7 @@ class SharedData():
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
     # HEARTBEAT_TIMEOUT = (60)*4 # time in seconds after which we return to previous heartbeat coordinate
     BACKUP_TIMEOUT = 2
-    AUTON_TOPIC_NAME     = "/autonomous_drive_train/velocity"
+    AUTON_TOPIC_NAME     = "/autonomous/drivetrain/command"
     GPS_TOPIC_NAME       = "/autonomous/localization/gps/fix"
     VELOCITY_TOPIC_NAME  = "/autonomous/localization/gps/vel"
     COMPASS_TOPIC_NAME   = "/autonomous/localization/gps/heading"
