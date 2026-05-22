@@ -71,49 +71,13 @@ class NewObstacleAvoidanceControllerState(State):
         self.shared_data.auton_publisher.publish(vel_msg)
 
     def _rebuild_main_controller_from_current_path(self):
-        # new_waypoints must stay in GPS/NED frame — PurePursuit is initialized with
-        # GPS/NED waypoints in NewControllerState and NewControllerState.step() converts
-        # them back to lat/lon for visualization.
+        # Set new_waypoints in map/GPS-NED frame; _convert_waypoints_to_odom() in _tick
+        # will TF2-convert them to odom before PurePursuit is re-initialized.
         cur_position = self.shared_data.cur_position
-        controller   = self.shared_data.controller
-
-        if controller is None or cur_position is None:
+        goal_xy      = self.shared_data.goal_map_xy
+        if cur_position is None or goal_xy is None:
             return False
-
-        # Prefer goal_map_xy (GPS/NED) as the destination; consistent frame with PP.
-        goal_xy = self.shared_data.goal_map_xy
-        if goal_xy is not None:
-            self.shared_data.new_waypoints = [cur_position, goal_xy]
-            self.shared_data.new_waypoints_flag = True
-            return True
-
-        # Fall back to controller.final (also GPS/NED — set from GPS waypoints).
-        if hasattr(controller, "final") and controller.final is not None:
-            final_pt = tuple(controller.final.tolist()) if hasattr(controller.final, 'tolist') else tuple(controller.final)
-            self.shared_data.new_waypoints = [cur_position, final_pt]
-            self.shared_data.new_waypoints_flag = True
-            return True
-
-        # Fallback: use remaining user_pts from the existing controller.
-        if not hasattr(controller, "user_pts"):
-            return False
-
-        user_pts = list(controller.user_pts)
-        if not user_pts:
-            return False
-
-        cur = np.array(cur_position)
-        closest_idx = int(np.argmin([np.linalg.norm(np.array(pt) - cur) for pt in user_pts]))
-        remaining_pts = user_pts[closest_idx:]
-
-        if not remaining_pts:
-            return False
-
-        if np.linalg.norm(np.array(remaining_pts[0]) - cur) < 1e-6:
-            self.shared_data.new_waypoints = [cur_position] + remaining_pts[1:]
-        else:
-            self.shared_data.new_waypoints = [cur_position] + remaining_pts
-
+        self.shared_data.new_waypoints = [cur_position, goal_xy]
         self.shared_data.new_waypoints_flag = True
         return True
 

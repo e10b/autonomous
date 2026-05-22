@@ -74,7 +74,8 @@ class SharedData():
     gps_converter = None   # given lat and long spits out x and y
     gps_time = None   # timer to register time between new gps receipts
     new_waypoints_flag = False  # used as a synchronization flag
-    new_waypoints      = []     # all waypoints we need to hit to get to the target
+    new_waypoints      = []     # all waypoints we need to hit to get to the target (map/GPS-NED frame)
+    new_waypoints_odom = []     # new_waypoints[1:] converted to odom frame; set by _convert_waypoints_to_odom()
     counter             = 0     # see how many times it sees the object
 
     should_look_for_obj = False  # self explanatory

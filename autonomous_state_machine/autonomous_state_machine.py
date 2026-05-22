@@ -17,6 +17,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import TwistStamped, PointStamped
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Float64MultiArray, String, Bool
+import rclpy.duration
 from sensor_msgs.msg import NavSatFix, PointCloud2, Imu
 from time import time
 from autonomous_state_machine.global_map import GlobalMapManager
@@ -118,6 +119,17 @@ class AutonomousStateMachine(Node):
         except Exception:
             return (x_map, y_map)  # fallback: in sim map≡odom so values are identical
 
+    def _convert_waypoints_to_odom(self):
+        """Convert new_waypoints (map/GPS-NED frame) to odom frame and store in new_waypoints_odom."""
+        odom_pos = self.shared_data.local_odom_position
+        if odom_pos is None:
+            return
+        odom_wps = [odom_pos]   # [0] is always the current odom position
+        for wp in self.shared_data.new_waypoints[1:]:
+            converted = self._transform_goal_to_odom(wp[0], wp[1])
+            odom_wps.append(converted)
+        self.shared_data.new_waypoints_odom = odom_wps
+
     def _on_pointcloud(self, msg: PointCloud2):
         pos = self.shared_data.local_odom_position
         yaw = self.shared_data.cur_heading
@@ -210,6 +222,7 @@ class AutonomousStateMachine(Node):
                     self.cur_state = self.state_instance.validating_state
 
         if self.shared_data.new_waypoints_flag:
+            self._convert_waypoints_to_odom()
             self.cur_state = self.state_instance.new_controller_state
 
         if self.last_state != self.cur_state:

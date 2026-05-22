@@ -39,11 +39,12 @@ The `map → odom` transform is a static identity in simulation (published by `r
 | OA waypoints (Theta\* output) | **odom** | Passed to `AlignAndMove`; compared with `local_odom_position` in `align.py` |
 | `goal_odom` | **odom** | GPS goal transformed via TF2 `map → odom`; stored in `SharedData.goal_odom` |
 | `goal_map_xy` | **map** (GPS/NED) | `GPS_2_NED.gps_to_xy()` output; Python equivalent of the C++ `/fromLL` service |
-| `cur_position` | **map** (GPS/NED) | Used only for GPS display and PP `effective_pos` bias (not navigation decisions) |
+| `cur_position` | **map** (GPS/NED) | Used only for GPS display; not used in navigation decisions |
 | ASCII map robot position | **odom** | `print_ascii_map` called with `local_odom_position` so robot marker is correct |
 | Every-tick goal check (`_tick`) | **odom** | `dist(local_odom_position, goal_odom) < 2 m` → `validating_state` |
 | OA completion goal check | **odom** | Same distance check in `NewObstacleAvoidanceControllerState` |
-| PP steering (`cur_position`) | **GPS/NED** | Passed directly to `calc_steering`; consistent with GPS/NED waypoints in PP |
+| PP steering (`local_odom_position`) | **odom** | `new_waypoints_odom` (TF2-converted) passed to PP; `drive_state.py` uses `local_odom_position` as `cur_pose` |
+| `new_waypoints_odom` | **odom** | TF2 map→odom conversion of `new_waypoints[1:]`; set by `_convert_waypoints_to_odom()` in `_tick` |
 
 ### Goal Transform Pipeline
 

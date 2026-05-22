@@ -15,32 +15,36 @@ class NewControllerState(State):
     def on_enter(self):
         self.shared_data.logger.info("[NewControllerState] Entering newControllerState...")
         with self.shared_data.mutex:
-            diff = np.array(self.shared_data.new_waypoints[-1]) - np.array(self.shared_data.new_waypoints[-2])
+            waypoints = self.shared_data.new_waypoints_odom
+            if len(waypoints) < 2:
+                self.shared_data.logger.error("[NewControllerState] odom waypoints not ready — cannot init PP")
+                self.shared_data.new_waypoints_flag = False
+                return
+            diff = np.array(waypoints[-1]) - np.array(waypoints[-2])
             next_orientation = math.atan2(diff[1], diff[0])
             self.shared_data.logger.info(f"[NewControllerState] Next orientation calculated: {next_orientation}")
             self.shared_data.controller = PurePursuit(
-                self.shared_data.new_waypoints,
+                waypoints,
                 self.shared_data.cur_heading,
                 next_orientation,
                 tolerance=TOLERANCE
             )
-            self.shared_data.logger.info("[NewControllerState] PurePursuit controller initialized with new waypoints.")
+            self.shared_data.logger.info("[NewControllerState] PurePursuit controller initialized with odom waypoints.")
             self.shared_data.new_waypoints_flag = False
             self.shared_data.obstacle_avoidance_running = False
             self.shared_data.logger.info("[NewControllerState] Flags updated.")
 
     def step(self):
         with self.shared_data.mutex:
+            # PP waypoints are in odom frame; convert to map (GPS/NED) frame before
+            # calling xy_to_gps for visualization. In sim map≡odom so offset=(0,0).
+            offset = self.shared_data.gps_ned_to_map_offset or (0.0, 0.0)
             waypoints_msg = Float64MultiArray()
             waypoints_msg.data = []
-
-            self.shared_data.logger.info("Converting waypoints to GPS and preparing message...")
             for x, y in self.shared_data.controller.waypoints:
-                lat, lon = self.shared_data.gps_converter.xy_to_gps(x, y)
+                lat, lon = self.shared_data.gps_converter.xy_to_gps(x + offset[0], y + offset[1])
                 waypoints_msg.data.append(lat)
                 waypoints_msg.data.append(lon)
-
             self.shared_data.auton_path_publisher.publish(waypoints_msg)
-            self.shared_data.logger.info("Waypoints message published.")
 
         return self.state_instance.drive_state

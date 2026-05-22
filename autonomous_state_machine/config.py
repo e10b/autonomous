@@ -1,9 +1,9 @@
 # Configuration Parameters for Autonomous State Machine
 
 # Global Map Parameters
-PERSISTENT_GRID_SIZE = 60.0
+PERSISTENT_GRID_SIZE = 60 # 60 is good
 OVERLAP_SIZE = 5.0
-SHIFT_SIZE = 30.0
+SHIFT_SIZE = PERSISTENT_GRID_SIZE // 2
 GRID_CELL_SIZE = 0.10
 
 # Debugging
