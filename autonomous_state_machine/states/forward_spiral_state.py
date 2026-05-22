@@ -1,5 +1,6 @@
 from autonomous_state_machine.states.state_class import State
 from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
 from autonomous_state_machine.spiral_generation import get_spiral
 from autonomous_state_machine.pp import PurePursuit
 from time import time
@@ -35,12 +36,12 @@ class ForwardSpiralState(State):
             cur_pose = [self.shared_data.cur_position[0], self.shared_data.cur_position[1], self.shared_data.cur_heading]
             steering_radius = self.shared_data.controller.calc_steering(cur_pose)
             steering_output = self.shared_data.STEERING_CONST * self.shared_data.AUTON_SPEED / steering_radius / 2
-            vel_msg = Float64MultiArray()
-            vel_msg.data = [self.shared_data.AUTON_SPEED - steering_output,
-                            self.shared_data.AUTON_SPEED + steering_output]
-            for i in range(len(vel_msg.data)):
-                vel_msg.data[i] = clamp(vel_msg.data[i], -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            self.shared_data.auton_publisher.publish(vel_msg)
+            left = clamp(self.shared_data.AUTON_SPEED - steering_output, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            right = clamp(self.shared_data.AUTON_SPEED + steering_output, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            vel = Twist()
+            vel.linear.x = (left + right) / 2.0
+            vel.angular.z = (right - left) / 1.53
+            self.shared_data.auton_publisher.publish(vel)
 
             #print(f"LEFTWHEEL{vel_msg.data[0]} \
                     #RIGHTWHEEL{vel_msg.data[1]}")

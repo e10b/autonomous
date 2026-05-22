@@ -1,6 +1,8 @@
 from autonomous_state_machine.states.state_class import State
 from time import time
 from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
+from autonomous_state_machine.utils import clamp
 import math
 
 class CircleState(State):
@@ -20,7 +22,7 @@ class CircleState(State):
 
     def step(self) -> State:
         with self.shared_data.mutex:
-            vel_msg = Float64MultiArray()
+            vel_msg = None
 
             # Spin 90 degrees CW to be perpendicular to the AR Tag pole
             if not self.done_perp and abs(self.shared_data.cur_heading - (self.shared_data.start_heading - math.pi/2)) > self.shared_data.SPIN_TOLERANCE:
@@ -28,18 +30,23 @@ class CircleState(State):
                 """if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT/4:
                 print(
                     f"Spinning 90 deg for {round(time()-shared_data.start_time, 3)} seconds")"""
-                vel_msg.data = [self.shared_data.SPIN_SPEED, -self.shared_data.SPIN_SPEED]
-                self.shared_data.auton_publisher.publish(vel_msg)
+                left = clamp(self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+                right = clamp(-self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+                vel = Twist()
+                vel.linear.x = (left + right) / 2.0
+                vel.angular.z = (right - left) / 1.53
+                self.shared_data.auton_publisher.publish(vel)
                 return self.state_instance.circle_state
             else:
                 self.done_perp = True
             print(f"Spinning 270 deg for {round(time()-self.shared_data.start_time, 3)} seconds")
 
-            vel_msg.data = [
-                0.5,
-                2,
-            ]
-            self.shared_data.auton_publisher.publish(vel_msg)
+            left = clamp(0.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            right = clamp(2, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            vel2 = Twist()
+            vel2.linear.x = (left + right) / 2.0
+            vel2.angular.z = (right - left) / 1.53
+            self.shared_data.auton_publisher.publish(vel2)
 
             end_angle = self.shared_data.start_heading + 2/3 * math.pi if self.shared_data.start_heading < 0 \
                         else self.shared_data.start_heading - 2/3 * math.pi

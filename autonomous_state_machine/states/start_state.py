@@ -18,9 +18,11 @@ class StartState(State):
         led_msg.data = [255, 0, 0]
         self.shared_data.led_publisher.publish(led_msg)
 
-        vel_msg = Float64MultiArray()
-        vel_msg.data = [0, 0]
-        self.shared_data.auton_publisher.publish(vel_msg)
+        from geometry_msgs.msg import Twist
+        stop = Twist()
+        stop.linear.x = 0.0
+        stop.angular.z = 0.0
+        self.shared_data.auton_publisher.publish(stop)
 
         # Clear debug file for fresh debug output
         self.shared_data.logger.info("[StartState] Clearing debug.txt file...")

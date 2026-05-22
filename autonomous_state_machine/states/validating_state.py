@@ -13,9 +13,10 @@ class ValidatingState(State):
         self.log("Clearing position_history...")
 
         # Stop the rover
-        vel_msg_done = Float64MultiArray()
-        vel_msg_done.data = [0, 0]
-        self.shared_data.auton_publisher.publish(vel_msg_done)
+        stop = __import__('geometry_msgs.msg', fromlist=['Twist']).Twist()
+        stop.linear.x = 0.0
+        stop.angular.z = 0.0
+        self.shared_data.auton_publisher.publish(stop)
         
         with self.shared_data.mutex:
             self.shared_data.position_history.clear()

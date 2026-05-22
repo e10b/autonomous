@@ -1,5 +1,6 @@
 import math
 from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
 
 
@@ -35,9 +36,10 @@ class AlignAndMove():
         return True
 
     def _publish_stop(self, shared_data):
-        vel_msg = Float64MultiArray()
-        vel_msg.data = [0.0, 0.0]
-        shared_data.auton_publisher.publish(vel_msg)
+        vel = Twist()
+        vel.linear.x = 0.0
+        vel.angular.z = 0.0
+        shared_data.auton_publisher.publish(vel)
 
     def step(self, shared_data) -> bool:
         """Call repeatedly. Publishes wheel commands towards `current_target`.
@@ -97,9 +99,10 @@ class AlignAndMove():
                 right = turn
                 left = clamp(left, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
                 right = clamp(right, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-                vel_msg = Float64MultiArray()
-                vel_msg.data = [left, right]
-                shared_data.auton_publisher.publish(vel_msg)
+                vel = Twist()
+                vel.linear.x = (left + right) / 2.0
+                vel.angular.z = (right - left) / 1.53
+                shared_data.auton_publisher.publish(vel)
                 print(f"[AlignAndMove] TURNING: ang_diff={ang_diff:.3f} rad -> left={left:.2f}, right={right:.2f}")
                 return False
             else:
@@ -113,9 +116,10 @@ class AlignAndMove():
         right = shared_data.AUTON_SPEED
         left = clamp(left, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         right = clamp(right, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-        vel_msg = Float64MultiArray()
-        vel_msg.data = [left, right]
-        shared_data.auton_publisher.publish(vel_msg)
+        vel = Twist()
+        vel.linear.x = (left + right) / 2.0
+        vel.angular.z = (right - left) / 1.53
+        shared_data.auton_publisher.publish(vel)
         print(f"[AlignAndMove] MOVING: dist={distance:.3f}m -> left={left:.2f}, right={right:.2f}")
         return False
         

@@ -26,9 +26,8 @@ class DriveState(State):
                 return self.state_instance.drive_state
             
             controller = self.shared_data.controller
-            odom_pos   = self.shared_data.local_odom_position
 
-            if controller is None or odom_pos is None or self.shared_data.cur_heading is None:
+            if controller is None or self.shared_data.cur_position is None or self.shared_data.cur_heading is None:
                 return self.state_instance.drive_state
 
             # Wrap heading between -pi and pi to avoid large jumps in heading error
@@ -37,9 +36,9 @@ class DriveState(State):
             heading = math.atan2(math.sin(heading), math.cos(heading))
             effective_speed = clamp(self.shared_data.cur_speed, 0.0, self.shared_data.MAX_AUTON_SPEED)
 
-            # PP is initialized with odom-frame waypoints (new_waypoints_odom), so pass
-            # local_odom_position directly — frame-consistent with the spline.
-            cur_pose = [odom_pos[0], odom_pos[1], heading]
+            # PP was initialized with GPS/NED waypoints (new_waypoints from GPS_2_NED),
+            # so pass cur_position (GPS/NED) directly — no odom drift risk.
+            cur_pose = [self.shared_data.cur_position[0], self.shared_data.cur_position[1], heading]
             steering_radius = controller.calc_steering(cur_pose)
 
             # adds steering clamp to prevent small/irrelevant changes from causing a rover spin

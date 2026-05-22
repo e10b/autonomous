@@ -40,9 +40,11 @@ class GoalState(State):
             cur_state_msg.data = "goal_reached"
             self.shared_data.cur_state_publisher.publish(cur_state_msg)
             # Stop the rover
-            vel_msg_done = Float64MultiArray()
-            vel_msg_done.data = [0, 0]
-            self.shared_data.auton_publisher.publish(vel_msg_done)
+            stop = \
+                __import__('geometry_msgs.msg', fromlist=['Twist']).Twist()
+            stop.linear.x = 0.0
+            stop.angular.z = 0.0
+            self.shared_data.auton_publisher.publish(stop)
 
             # If we are in goal state but the last heartbeat is stale (past timeout),
             # wait a short period and then transition to the heartbeat state.
@@ -76,9 +78,10 @@ class GoalState(State):
         reset_ar_data(self.shared_data)
 
         # Stop the rover
-        vel_msg_done = Float64MultiArray()
-        vel_msg_done.data = [0, 0]
-        self.shared_data.auton_publisher.publish(vel_msg_done)
+        stop = __import__('geometry_msgs.msg', fromlist=['Twist']).Twist()
+        stop.linear.x = 0.0
+        stop.angular.z = 0.0
+        self.shared_data.auton_publisher.publish(stop)
 
         led_msg = Float64MultiArray()
 

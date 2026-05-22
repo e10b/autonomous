@@ -1,6 +1,8 @@
 from autonomous_state_machine.states.state_class import State
 from time import time
 from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
+from autonomous_state_machine.utils import clamp
 
 class SpinState(State):
     def __init__(self, shared_data, state_instance):
@@ -18,9 +20,12 @@ class SpinState(State):
     def step(self) -> State:
         with self.shared_data.mutex:
             print(f"spinning for {round(time()-self.shared_data.start_time)} seconds")
-            vel_msg = Float64MultiArray()
-            vel_msg.data = [-self.shared_data.SPIN_SPEED, self.shared_data.SPIN_SPEED]
-            self.shared_data.auton_publisher.publish(vel_msg)
+            left = clamp(-self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED) if hasattr(self.shared_data, 'MAX_AUTON_SPEED') else -self.shared_data.SPIN_SPEED
+            right = clamp(self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED) if hasattr(self.shared_data, 'MAX_AUTON_SPEED') else self.shared_data.SPIN_SPEED
+            vel = Twist()
+            vel.linear.x = (left + right) / 2.0
+            vel.angular.z = (right - left) / 1.53
+            self.shared_data.auton_publisher.publish(vel)
 
             # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
             #     return self.shared_data.heartbeat_state

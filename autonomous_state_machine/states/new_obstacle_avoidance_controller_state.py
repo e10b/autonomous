@@ -1,5 +1,6 @@
 from autonomous_state_machine.states.state_class import State
 from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
 import math
 from time import time
 import numpy as np
@@ -60,15 +61,18 @@ class NewObstacleAvoidanceControllerState(State):
             self.shared_data.mutex.release()
 
     def _publish_stop(self):
-        vel_msg = Float64MultiArray()
-        vel_msg.data = [0, 0]
-        self.shared_data.auton_publisher.publish(vel_msg)
+        vel = Twist()
+        vel.linear.x = 0.0
+        vel.angular.z = 0.0
+        self.shared_data.auton_publisher.publish(vel)
 
     def _publish_reverse(self):
         base_speed = self.shared_data.AUTON_SPEED
-        vel_msg = Float64MultiArray()
-        vel_msg.data = [-base_speed, -base_speed]
-        self.shared_data.auton_publisher.publish(vel_msg)
+        # Convert equal negative wheel speeds into linear/ angular twist
+        vel = Twist()
+        vel.linear.x = (-base_speed + -base_speed) / 2.0
+        vel.angular.z = (-base_speed - (-base_speed)) / 1.53
+        self.shared_data.auton_publisher.publish(vel)
 
     def _rebuild_main_controller_from_current_path(self):
         # Set new_waypoints in map/GPS-NED frame; _convert_waypoints_to_odom() in _tick

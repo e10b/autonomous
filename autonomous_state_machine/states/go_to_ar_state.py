@@ -1,6 +1,7 @@
 from autonomous_state_machine.states.state_class import State
 from time import time
 from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
 
 AR_DRIVE_SPEED = 1.0
@@ -19,20 +20,15 @@ class GoToARState(State):
 
     def step(self) -> State:
         with self.shared_data.mutex:
-            vel_msg = Float64MultiArray()
 
             off_center = self.shared_data.ar_cX - 0.5
             print(off_center, self.shared_data.ar_size)
-            vel_msg.data = [
-                AR_DRIVE_SPEED + off_center * 1.5,
-                AR_DRIVE_SPEED - off_center * 1.5,
-            ]
-
-            for i in range(len(vel_msg.data)):
-                vel_msg.data[i] = clamp(
-                    vel_msg.data[i], -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-
-            self.shared_data.auton_publisher.publish(vel_msg)
+            left = clamp(AR_DRIVE_SPEED + off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            right = clamp(AR_DRIVE_SPEED - off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            vel = Twist()
+            vel.linear.x = (left + right) / 2.0
+            vel.angular.z = (right - left) / 1.53
+            self.shared_data.auton_publisher.publish(vel)
 
             print(f"LEFT WHEEL: {vel_msg.data[0]} \
                    RIGHT WHEEL: {vel_msg.data[1]}")
@@ -44,8 +40,10 @@ class GoToARState(State):
             #     return self.shared_data.heartbeat_state
 
             if abs(self.shared_data.ar_size) > self.shared_data.AR_TOLERANCE:
-                vel_msg.data = [0, 0]
-                self.shared_data.auton_publisher.publish(vel_msg)
+                stop = Twist()
+                stop.linear.x = 0.0
+                stop.angular.z = 0.0
+                self.shared_data.auton_publisher.publish(stop)
                 self.shared_data.found_ar_flag = False
                 # if self.shared_data.do_gate_task:
                 #     self.shared_data.do_gate_task = False
