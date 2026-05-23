@@ -106,14 +106,7 @@ class DriveState(State):
             left = clamp(left, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             right = clamp(right, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             # self.log(f"heading {self.shared_data.cur_heading} pos {self.shared_data.cur_position} next_pt {controller.waypoints[controller.look_ahead_point_index]}")
-<<<<<<< HEAD
             # Publish velocity message to robot as linear/angular twist.
-=======
-            # Publish velocity message to robot
-<<<<<<< HEAD
->>>>>>> 89e7c09 (swapped out pp for allign)
-=======
->>>>>>> 89e7c09 (swapped out pp for allign)
             vel_msg = Twist()
             vel_msg.linear.x = (left + right) / 2.0
             vel_msg.angular.z = (right - left) / 1.53
