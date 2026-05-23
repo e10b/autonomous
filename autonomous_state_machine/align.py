@@ -4,14 +4,11 @@ from autonomous_state_machine.utils import clamp
 
 
 class AlignAndMove():
-    """Simple align-and-drive helper that publishes wheel commands to the
-    same `auton_publisher` used by DriveState. The API is intentionally
-    minimal: call `start_next_target()` to set the next target, then call
-    `step(shared_data)` repeatedly from the main loop. `step` will publish
-    wheel speeds and return True when the current target is reached.
+    """Simple align-and-drive helper that mirrors the controller shape used by
+    PurePursuit.
 
-    This mirrors DriveState's steering -> wheel-speed conversion so behavior
-    is consistent with the rest of the controller stack.
+    The class now exposes reusable velocity calculations, while `step()` stays
+    as a thin compatibility wrapper that publishes the computed command.
     """
 
     def __init__(self, pts, start_ang=None, waypoint_threshold: float = 0.2):
@@ -19,10 +16,18 @@ class AlignAndMove():
         self.user_unreached_pts = list(pts)
         self.current_target = None
         self.waypoint_threshold = waypoint_threshold
+        self.reached_goal = False
 
     @property
     def waypoints(self):
         return self.user_pts
+
+    def did_reach_goal(self):
+        return self.reached_goal
+
+    def next_point(self, cur_pt):
+        # AlignAndMove advances one target at a time, so the active target is the next point.
+        return self.current_target
 
     def start_next_target(self):
         """Pop the first unreached point and set it as current target.
@@ -32,30 +37,20 @@ class AlignAndMove():
         if not self.user_unreached_pts:
             self.current_target = None
             self.phase = None
+            self.reached_goal = True
             return False
         self.current_target = tuple(self.user_unreached_pts[0])
         self.phase = "align"
         print(f"[AlignAndMove] New target set: {self.current_target}")
         return True
 
-    def _publish_stop(self, shared_data):
-        vel = Twist()
-        vel.linear.x = 0.0
-        vel.angular.z = 0.0
-        shared_data.auton_publisher.publish(vel)
-
-    def step(self, shared_data) -> bool:
-        """Call repeatedly. Publishes wheel commands towards `current_target`.
-        Returns True when the current target has been reached (and advances
-        the internal list), False otherwise.
-        """
+    def calc_velocity(self, shared_data):
+        """Return wheel speeds for the current target without publishing them."""
         if self.current_target is None:
-            # No active target
-            return True
+            return 0.0, 0.0, True
 
-        # Need position and heading
         if shared_data.local_odom_position is None or shared_data.cur_heading is None:
-            return False
+            return None, None, False
 
         robot_x, robot_z = shared_data.local_odom_position
         print("Waypoint list:", self.user_unreached_pts)
@@ -66,21 +61,22 @@ class AlignAndMove():
         dz = target_z - robot_z
         distance = math.hypot(dx, dz)
 
-        # If within threshold, mark reached and advance
+        # If within threshold, mark reached and advance.
         if distance < self.waypoint_threshold:
             print(f"[AlignAndMove] Target reached: {self.current_target} (dist={distance:.2f}m)")
-            self.user_unreached_pts.pop(0)
-            self._publish_stop(shared_data)
+            if self.user_unreached_pts:
+                self.user_unreached_pts.pop(0)
             self.current_target = None
             self.phase = None
-            return True
+            self.reached_goal = not self.user_unreached_pts
+            return 0.0, 0.0, True
 
         # NOTE: obstacle-avoidance waypoints use the same (x,z)
         desired_ang = math.atan2(dz, dx)
         heading = shared_data.cur_heading
         ang_diff = math.atan2(math.sin(desired_ang - heading), math.cos(desired_ang - heading))
 
-        # Align phase: rotate in place until heading error is small
+        # Align phase: rotate in place until heading error is small.
         ANG_THRESHOLD = 0.05 # 2.8 degrees
         TURN_SPEED = 0.4 * shared_data.AUTON_SPEED
 
@@ -100,27 +96,44 @@ class AlignAndMove():
                 right = turn
                 left = clamp(left, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
                 right = clamp(right, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-                vel = Twist()
-                vel.linear.x = (left + right) / 2.0
-                vel.angular.z = (right - left) / 1.53
-                shared_data.auton_publisher.publish(vel)
                 print(f"[AlignAndMove] TURNING: ang_diff={ang_diff:.3f} rad -> left={left:.2f}, right={right:.2f}")
-                return False
-            else:
-                # Aligned, switch to moving forward
-                self.phase = "move"
-                print(f"[AlignAndMove] ALIGNED -> switching to MOVE phase (ang_diff={ang_diff:.3f})")
-                return False
+                return left, right, False
 
-        # Move phase: drive straight toward target (no steering)
+            # Aligned, switch to moving forward.
+            self.phase = "move"
+            print(f"[AlignAndMove] ALIGNED -> switching to MOVE phase (ang_diff={ang_diff:.3f})")
+            return 0.0, 0.0, False
+
+        # Move phase: drive straight toward target (no steering).
         left = shared_data.AUTON_SPEED
         right = shared_data.AUTON_SPEED
         left = clamp(left, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
         right = clamp(right, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+        print(f"[AlignAndMove] MOVING: dist={distance:.3f}m -> left={left:.2f}, right={right:.2f}")
+        return left, right, False
+
+    def _publish_stop(self, shared_data):
+        vel = Twist()
+        vel.linear.x = 0.0
+        vel.angular.z = 0.0
+        shared_data.auton_publisher.publish(vel)
+
+    def step(self, shared_data) -> bool:
+        """Call repeatedly. Publishes wheel commands towards `current_target`.
+        Returns True when the current target has been reached (and advances
+        the internal list), False otherwise.
+        """
+        left, right, target_done = self.calc_velocity(shared_data)
+
+        if left is None or right is None:
+            return False
+
+        if target_done:
+            self._publish_stop(shared_data)
+            return True
+
         vel = Twist()
         vel.linear.x = (left + right) / 2.0
         vel.angular.z = (right - left) / 1.53
         shared_data.auton_publisher.publish(vel)
-        print(f"[AlignAndMove] MOVING: dist={distance:.3f}m -> left={left:.2f}, right={right:.2f}")
         return False
-        
