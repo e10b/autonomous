@@ -110,6 +110,9 @@ class DriveState(State):
             # Publish velocity message to robot as linear/angular twist.
 =======
             # Publish velocity message to robot
+<<<<<<< HEAD
+>>>>>>> 89e7c09 (swapped out pp for allign)
+=======
 >>>>>>> 89e7c09 (swapped out pp for allign)
             vel_msg = Twist()
             vel_msg.linear.x = (left + right) / 2.0
