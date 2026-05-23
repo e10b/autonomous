@@ -1,5 +1,7 @@
 from autonomous_state_machine.states.state_class import State
 from autonomous_state_machine.pp import PurePursuit
+from autonomous_state_machine.align import AlignAndMove
+from autonomous_state_machine.config import CONTROLLER_TYPE
 import numpy as np
 import math
 from std_msgs.msg import Float64MultiArray
@@ -23,13 +25,18 @@ class NewControllerState(State):
             diff = np.array(waypoints[-1]) - np.array(waypoints[-2])
             next_orientation = math.atan2(diff[1], diff[0])
             self.shared_data.logger.info(f"[NewControllerState] Next orientation calculated: {next_orientation}")
-            self.shared_data.controller = PurePursuit(
-                waypoints,
-                self.shared_data.cur_heading,
-                next_orientation,
-                tolerance=TOLERANCE
-            )
-            self.shared_data.logger.info("[NewControllerState] PurePursuit controller initialized with odom waypoints.")
+            if CONTROLLER_TYPE == "align":
+                self.shared_data.controller = AlignAndMove(waypoints)
+                self.shared_data.controller.start_next_target()
+                self.shared_data.logger.info("[NewControllerState] AlignAndMove controller initialized with odom waypoints.")
+            else:
+                self.shared_data.controller = PurePursuit(
+                    waypoints,
+                    self.shared_data.cur_heading,
+                    next_orientation,
+                    tolerance=TOLERANCE
+                )
+                self.shared_data.logger.info("[NewControllerState] PurePursuit controller initialized with odom waypoints.")
             self.shared_data.new_waypoints_flag = False
             self.shared_data.obstacle_avoidance_running = False
             self.shared_data.logger.info("[NewControllerState] Flags updated.")

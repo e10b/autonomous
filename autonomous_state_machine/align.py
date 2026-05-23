@@ -21,6 +21,10 @@ class AlignAndMove():
         self.current_target = None
         self.waypoint_threshold = waypoint_threshold
 
+    @property
+    def waypoints(self):
+        return self.user_pts
+
     def start_next_target(self):
         """Pop the first unreached point and set it as current target.
         Returns False if there are no remaining targets.

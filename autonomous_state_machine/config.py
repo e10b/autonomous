@@ -12,6 +12,9 @@ PRINT_ASCII_MAP = True
 # Simulation Flag: Turns off degradation for sim, turns it on for real
 SIMULATION = True
 
+# Navigation controller: "pure_pursuit" or "align"
+CONTROLLER_TYPE = "align"
+
 # Obstacle Avoidance
 BACKUP_DURATION = 2.0
 OA_COOLDOWN_EXTRA = 1.0        # extra seconds added to BACKUP_DURATION for OA re-trigger cooldown

@@ -1,5 +1,6 @@
 from autonomous_state_machine.states.state_class import State, StateInstance
 from autonomous_state_machine.shared_data import SharedData
+from autonomous_state_machine.align import AlignAndMove
 from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import Twist
 from time import time
@@ -29,6 +30,29 @@ class DriveState(State):
             controller = self.shared_data.controller
 
             if controller is None or self.shared_data.cur_position is None or self.shared_data.cur_heading is None:
+                return self.state_instance.drive_state
+
+            # AlignAndMove publishes Twist internally — let it drive and manage its own target advancement.
+            if isinstance(controller, AlignAndMove):
+                target_done = controller.step(self.shared_data)
+                if target_done:
+                    if controller.user_unreached_pts:
+                        controller.start_next_target()
+                    else:
+                        self.log("AlignAndMove: all waypoints reached!")
+                        return self.state_instance.validating_state
+                if self.shared_data.new_obstacle_avoidance_waypoints_flag:
+                    self.log("[DriveState] Flag detected: transitioning to OA state")
+                    self.shared_data.obstacle_avoidance_running = True
+                    return self.state_instance.new_obstacle_avoidance_controller_state
+                if self.shared_data.should_look_for_ar and self.shared_data.found_ar_flag:
+                    self.log("AR tag found, switching to go_to_ar_state")
+                    self.shared_data.obstacle_avoidance_running = False
+                    self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+                    return self.state_instance.go_to_ar_state
+                if self.shared_data.should_look_for_obj and self.shared_data.found_obj_flag:
+                    self.log("Object found, switching to go_to_obj_state")
+                    return self.state_instance.go_to_obj_state
                 return self.state_instance.drive_state
 
             # Wrap heading between -pi and pi to avoid large jumps in heading error
