@@ -1,6 +1,5 @@
 from autonomous_state_machine.states.state_class import State
 from time import time
-from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
 
@@ -29,9 +28,6 @@ class GoToARState(State):
             vel.linear.x = (left + right) / 2.0
             vel.angular.z = (right - left) / 1.53
             self.shared_data.auton_publisher.publish(vel)
-
-            print(f"LEFT WHEEL: {vel_msg.data[0]} \
-                   RIGHT WHEEL: {vel_msg.data[1]}")
 
             # if the AR tag is big enough in frame, must be close enough
 

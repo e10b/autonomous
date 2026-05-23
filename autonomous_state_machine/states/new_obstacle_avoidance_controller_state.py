@@ -1,5 +1,4 @@
 from autonomous_state_machine.states.state_class import State
-from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import Twist
 import math
 from time import time

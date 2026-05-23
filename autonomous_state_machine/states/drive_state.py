@@ -61,9 +61,11 @@ class DriveState(State):
             heading = math.atan2(math.sin(heading), math.cos(heading))
             effective_speed = clamp(self.shared_data.cur_speed, 0.0, self.shared_data.MAX_AUTON_SPEED)
 
-            # PP was initialized with GPS/NED waypoints (new_waypoints from GPS_2_NED),
-            # so pass cur_position (GPS/NED) directly — no odom drift risk.
-            cur_pose = [self.shared_data.cur_position[0], self.shared_data.cur_position[1], heading]
+            # PP is initialized with odom-frame waypoints (new_waypoints_odom); use odom position.
+            odom_pos = self.shared_data.local_odom_position
+            if odom_pos is None:
+                return self.state_instance.drive_state
+            cur_pose = [odom_pos[0], odom_pos[1], heading]
             steering_radius = controller.calc_steering(cur_pose)
 
             # adds steering clamp to prevent small/irrelevant changes from causing a rover spin
@@ -104,7 +106,11 @@ class DriveState(State):
             left = clamp(left, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             right = clamp(right, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             # self.log(f"heading {self.shared_data.cur_heading} pos {self.shared_data.cur_position} next_pt {controller.waypoints[controller.look_ahead_point_index]}")
+<<<<<<< HEAD
             # Publish velocity message to robot as linear/angular twist.
+=======
+            # Publish velocity message to robot
+>>>>>>> 89e7c09 (swapped out pp for allign)
             vel_msg = Twist()
             vel_msg.linear.x = (left + right) / 2.0
             vel_msg.angular.z = (right - left) / 1.53

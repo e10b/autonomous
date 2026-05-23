@@ -1,5 +1,4 @@
 from autonomous_state_machine.states.state_class import State
-from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.spiral_generation import get_spiral
 from autonomous_state_machine.pp import PurePursuit
