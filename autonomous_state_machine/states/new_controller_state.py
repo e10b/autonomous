@@ -1,6 +1,7 @@
 from autonomous_state_machine.states.state_class import State
 from autonomous_state_machine.pp import PurePursuit
 from autonomous_state_machine.align import AlignAndMove
+from geometry_msgs.msg import Twist
 import numpy as np
 import math
 
@@ -39,17 +40,13 @@ class NewControllerState(State):
             self.shared_data.logger.info("[NewControllerState] AlignAndMove controller initialized with odom waypoints.")
 
     def step(self):
+        # NewControllerState's job is only to initialize the controller and
+        # hand off active control to DriveState. DriveState owns publishing
+        # and steering logic for both PurePursuit and AlignAndMove.
         with self.shared_data.mutex:
             controller = self.shared_data.controller
             if controller is None:
                 return self.state_instance.new_controller_state
 
-            target_done = controller.step(self.shared_data)
-            if target_done:
-                if controller.user_unreached_pts:
-                    controller.start_next_target()
-                    return self.state_instance.new_controller_state
-                self.shared_data.logger.info("[NewControllerState] AlignAndMove: all waypoints reached.")
-                return self.state_instance.validating_state
-
-        return self.state_instance.new_controller_state
+            # Ensure controller has an active target (start_next_target called in on_enter).
+            return self.state_instance.drive_state

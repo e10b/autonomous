@@ -32,29 +32,6 @@ class DriveState(State):
             if controller is None or self.shared_data.cur_position is None or self.shared_data.cur_heading is None:
                 return self.state_instance.drive_state
 
-            # AlignAndMove publishes Twist internally — let it drive and manage its own target advancement.
-            if isinstance(controller, AlignAndMove):
-                target_done = controller.step(self.shared_data)
-                if target_done:
-                    if controller.user_unreached_pts:
-                        controller.start_next_target()
-                    else:
-                        self.log("AlignAndMove: all waypoints reached!")
-                        return self.state_instance.validating_state
-                if self.shared_data.new_obstacle_avoidance_waypoints_flag:
-                    self.log("[DriveState] Flag detected: transitioning to OA state")
-                    self.shared_data.obstacle_avoidance_running = True
-                    return self.state_instance.new_obstacle_avoidance_controller_state
-                if self.shared_data.should_look_for_ar and self.shared_data.found_ar_flag:
-                    self.log("AR tag found, switching to go_to_ar_state")
-                    self.shared_data.obstacle_avoidance_running = False
-                    self.shared_data.new_obstacle_avoidance_waypoints_flag = False
-                    return self.state_instance.go_to_ar_state
-                if self.shared_data.should_look_for_obj and self.shared_data.found_obj_flag:
-                    self.log("Object found, switching to go_to_obj_state")
-                    return self.state_instance.go_to_obj_state
-                return self.state_instance.drive_state
-
             # Wrap heading between -pi and pi to avoid large jumps in heading error
             # For example, 179 and -179 are only 2 degrees apart, but pp would give -358 (so a large spin)
             heading = self.shared_data.cur_heading
@@ -105,11 +82,19 @@ class DriveState(State):
             # Clamp wheel speeds and print debug info
             left = clamp(left, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             right = clamp(right, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            # self.log(f"heading {self.shared_data.cur_heading} pos {self.shared_data.cur_position} next_pt {controller.waypoints[controller.look_ahead_point_index]}")
             # Publish velocity message to robot as linear/angular twist.
             vel_msg = Twist()
             vel_msg.linear.x = (left + right) / 2.0
             vel_msg.angular.z = (right - left) / 1.53
+            # self.log(f"[DriveState] Publishing to auton_publisher: left={left:.3f}, right={right:.3f}")
             self.shared_data.auton_publisher.publish(vel_msg)
+            # print(
+            #     "CURR POS", round(self.shared_data.cur_position[0], 3), round(self.shared_data.cur_position[1], 3),
+            #     "LEFT WHEEL", round(left, 3),
+            #     "RIGHT WHEEL", round(right, 3),
+            #     "CUR_SPEED", round(self.shared_data.cur_speed, 3),
+            # )
             # Check if goal is reached
             if controller.did_reach_goal():
                 self.log("Goal reached!")
