@@ -77,9 +77,7 @@ class AlignAndMove():
 
         # NOTE: obstacle-avoidance waypoints use the same (x,z)
         desired_ang = math.atan2(dz, dx)
-        # can make this -shared_data.cur_heading if we want to test reverse
         heading = shared_data.cur_heading
-        # heading = shared_data.cur_heading
         ang_diff = math.atan2(math.sin(desired_ang - heading), math.cos(desired_ang - heading))
 
         # Align phase: rotate in place until heading error is small

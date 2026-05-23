@@ -41,15 +41,6 @@ class BackwardSpiralState(State):
             vel.angular.z = (right - left) / 1.53
             self.shared_data.auton_publisher.publish(vel)
 
-            # print(
-            #      "CURR POS", round(shared_data.cur_position[0], 3), round(shared_data.cur_position[1], 3),
-            #      "FIN POS", round(shared_data.new_waypoints[-1][0], 3), round(shared_data.new_waypoints[-1][1], 3),
-            #      "LEFT WHEEL", round(vel_msg.data[0], 3),
-            #      "RIGHT WHEEL", round(vel_msg.data[1], 3),
-            # )
-            # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
-            #     return self.shared_data.heartbeat_state
-
             print(f"found flag: {self.shared_data.found_ar_flag}, should look: {self.shared_data.should_look_for_ar}")
 
             if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
@@ -64,13 +55,9 @@ class BackwardSpiralState(State):
                 return self.state_instance.backward_spiral_state
 
             if (self.shared_data.should_look_for_ar and (time() - self.shared_data.start_time > self.shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
-            # if shared_data.controller.did_reach_goal() or \
-            #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
                 return self.state_instance.retry_state
 
             if (self.shared_data.should_look_for_obj and (time() - self.shared_data.start_time > self.shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
-            # if shared_data.controller.did_reach_goal() or \
-            #    time() - shared_data.start_time > shared_data.AR_TIMEOUT:
                 return self.state_instance.retry_state
 
             return self.state_instance.backward_spiral_state

@@ -14,13 +14,11 @@ class ForwardSpiralState(State):
 
     def on_enter(self):
         print("Entering ForwardSpiralState...")
-        # sleep(3)
         with self.shared_data.mutex:
             self.shared_data.start_time = time()
             if self.shared_data.should_look_for_ar:
                 pts = get_spiral(self.shared_data.cur_position[0], self.shared_data.cur_position[1],
                                     radius=self.shared_data.SPIRAL_RADIUS, coils=self.shared_data.SPIRAL_COILS, step=2, direction=1)
-            # pts = [(0, 0), (0, 3), (-0.5, 3), (-1, -4)]
             if self.shared_data.should_look_for_obj:
                 pts = get_spiral(self.shared_data.cur_position[0], self.shared_data.cur_position[1],
                                     radius=self.shared_data.OBJ_SPIRAL_RADIUS, coils=self.shared_data.OBJ_SPIRAL_COILS, step=2, direction=1)
@@ -42,11 +40,6 @@ class ForwardSpiralState(State):
             vel.angular.z = (right - left) / 1.53
             self.shared_data.auton_publisher.publish(vel)
 
-            #print(f"LEFTWHEEL{vel_msg.data[0]} \
-                    #RIGHTWHEEL{vel_msg.data[1]}")
-            # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
-            #     return self.shared_data.heartbeat_state
-
             print(f"found flag: {self.shared_data.found_ar_flag}, should look: {self.shared_data.should_look_for_ar}")
 
             if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
@@ -61,13 +54,9 @@ class ForwardSpiralState(State):
                 return self.state_instance.backward_spiral_state
 
             if (self.shared_data.should_look_for_ar and (time() - self.shared_data.start_time > self.shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
-            # if self.shared_data.controller.did_reach_goal() or \
-            #    time() - self.shared_data.start_time > self.shared_data.AR_TIMEOUT:
                 return self.state_instance.backward_spiral_state
 
             if (self.shared_data.should_look_for_obj and (time() - self.shared_data.start_time > self.shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
-            # if self.shared_data.controller.did_reach_goal() or \
-            #    time() - self.shared_data.start_time > self.shared_data.AR_TIMEOUT:
                 return self.state_instance.backward_spiral_state
 
             return self.state_instance.forward_spiral_state

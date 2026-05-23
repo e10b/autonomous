@@ -23,7 +23,6 @@ class StateInstance():
     new_controller_state    = None
     new_obstacle_avoidance_controller_state = None
     drive_state             = None
-    obstacle_recovery_state = None
     validating_state        = None
     goal_state              = None
     retry_state             = None
@@ -32,6 +31,5 @@ class StateInstance():
     backward_spiral_state   = None
     go_to_ar_state          = None
     go_to_obj_state         = None
-    charge_forward_state    = None
     circle_state            = None
-    # heartbeat_state         = None
+    heartbeat_state         = None

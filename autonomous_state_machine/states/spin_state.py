@@ -26,9 +26,6 @@ class SpinState(State):
             vel.angular.z = (right - left) / 1.53
             self.shared_data.auton_publisher.publish(vel)
 
-            # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
-            #     return self.shared_data.heartbeat_state
-
             if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
                 return self.state_instance.go_to_ar_state
 

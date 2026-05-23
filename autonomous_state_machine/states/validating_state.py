@@ -1,6 +1,7 @@
 import numpy as np
 from autonomous_state_machine.states.state_class import State
-from std_msgs.msg import Float64MultiArray, String
+from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import Twist
 
 class ValidatingState(State):
     def __init__(self, shared_data, state_instance):
@@ -13,7 +14,7 @@ class ValidatingState(State):
         self.log("Clearing position_history...")
 
         # Stop the rover
-        stop = __import__('geometry_msgs.msg', fromlist=['Twist']).Twist()
+        stop = Twist()
         stop.linear.x = 0.0
         stop.angular.z = 0.0
         self.shared_data.auton_publisher.publish(stop)

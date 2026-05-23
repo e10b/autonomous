@@ -154,7 +154,6 @@ class GlobalMapManager:
         
         # Accumulate updates: if multiple local cells map to the same global cell, they add up.
         # The +100 for an obstacle will easily overpower several -5s from overlapping free space.
-        print(f"DEBUG: max val in local={np.max(valid_local_vals)}, active obs pts={np.sum(valid_local_vals > 0)}, valid cells={len(valid_idx_x)}")
         np.add.at(temp_grid, (valid_idx_x, valid_idx_y), updates)
         
         # Clip to 0-100 range and save back to the global uint8 grid

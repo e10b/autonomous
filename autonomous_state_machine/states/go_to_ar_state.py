@@ -29,22 +29,12 @@ class GoToARState(State):
             vel.angular.z = (right - left) / 1.53
             self.shared_data.auton_publisher.publish(vel)
 
-            # if the AR tag is big enough in frame, must be close enough
-
-            # if abs(shared_data.ar_size) > shared_data.AR_TOLERANCE and False:
-            # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
-            #     return self.shared_data.heartbeat_state
-
             if abs(self.shared_data.ar_size) > self.shared_data.AR_TOLERANCE:
                 stop = Twist()
                 stop.linear.x = 0.0
                 stop.angular.z = 0.0
                 self.shared_data.auton_publisher.publish(stop)
                 self.shared_data.found_ar_flag = False
-                # if self.shared_data.do_gate_task:
-                #     self.shared_data.do_gate_task = False
-                #     return self.state_instance.circle_state
-
                 return self.state_instance.goal_state
 
             if time() - self.shared_data.start_time > self.shared_data.AR_TIMEOUT:

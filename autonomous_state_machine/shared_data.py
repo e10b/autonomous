@@ -18,7 +18,6 @@ class SharedData():
     
     SEGMENT_LENGTH   = 3.0
     LOCAL_ODOM_TOPIC  = "/autonomous/localization/odometry/local"
-    GLOBAL_ODOM_TOPIC = "/odometry/global"
 
     AR_TIMEOUT = 20
     SPIRAL_TIMEOUT = 300
@@ -28,14 +27,12 @@ class SharedData():
     OBJ_W_TOLERANCE = 0.08 # width of object we want to see before we stop
     AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
-    # HEARTBEAT_TIMEOUT = (60)*4 # time in seconds after which we return to previous heartbeat coordinate
     BACKUP_TIMEOUT = 2
     AUTON_TOPIC_NAME     = "/autonomous/drivetrain/command"
     GPS_TOPIC_NAME       = "/autonomous/localization/gps/fix"
     VELOCITY_TOPIC_NAME  = "/autonomous/localization/gps/vel"
     COMPASS_TOPIC_NAME   = "/autonomous/localization/gps/heading"
     WAYPOINTS_TOPIC_NAME = "/autonomous/input"
-    # HEARTBEAT_TOPIC      = "/autonomous_heartbeat"
     ARTAG_TOPIC_NAME     = "/artag_position"
     OBJECT_TOPIC_NAME    = "/object_position"
     OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME = "/obstacle_avoidance/path"
@@ -58,21 +55,14 @@ class SharedData():
     position_history = deque(maxlen=HIST_POSE_LEN)
 
     odom_ready            = False
-    global_odom_ready     = False
     local_odom_position   = None       # (x, y) in odom frame
-    global_odom_position  = None       # (x, y) in map frame
     _prev_local_odom_pos  = None       # for delta distance accumulation
-    odom_bias             = (0.0, 0.0) # translation: local_odom frame → GPS_2_NED frame
-    odom_bias_set         = False
-    gps_ned_to_map_offset = None       # (dx, dy) offset from map frame to GPS_2_NED frame, set once at startup
-    segment_distance      = 0.0        # meters traveled since last recalibration
 
     goal_map_xy  = None   # final goal in GPS_2_NED (map) frame; set when waypoints arrive
     goal_odom    = None   # final goal in odom frame; set via TF2 when goal_dirty is True
     goal_dirty   = False  # set True when goal_map_xy changes; cleared after TF2 transform
 
     gps_converter = None   # given lat and long spits out x and y
-    gps_time = None   # timer to register time between new gps receipts
     new_waypoints_flag = False  # used as a synchronization flag
     new_waypoints      = []     # all waypoints we need to hit to get to the target (map/GPS-NED frame)
     new_waypoints_odom = []     # new_waypoints[1:] converted to odom frame; set by _convert_waypoints_to_odom()
@@ -98,18 +88,6 @@ class SharedData():
     obstacle_avoidance_new_waypoints = []
     # obstacle avoidance has run and can avoid another obstacle
     obstacle_avoidance_running = False
-
-    # heartbeat time and pos
-    # last_heartbeat_time = time()
-    # last_heartbeat_pos  = []
-    # go_to_heartbeat     = False
-
-    # all should_look_for_ar values to synchronize with new_waypoints
-    # FIXME: these values are declared twice. What's the correct init value?
-    # should_look_for_ar = False
-    # found_ar_flag = False  # if ar tag has been detected, can go to ar tag state
-    # do_gate_task = True  # if two tags detected, then do gate task
-    # do_circle_task = False  # if one tag detected, then do circle task
 
     ar_cX = 0      # central x position of detected ar tag
     ar_cY = 0      # central y position of detected ar tag

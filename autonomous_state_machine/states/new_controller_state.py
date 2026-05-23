@@ -1,20 +1,8 @@
 from autonomous_state_machine.states.state_class import State
-<<<<<<< HEAD
-<<<<<<< HEAD
 from autonomous_state_machine.pp import PurePursuit
 from autonomous_state_machine.align import AlignAndMove
-from autonomous_state_machine.config import CONTROLLER_TYPE
-=======
-# from autonomous_state_machine.pp import PurePursuit
-from autonomous_state_machine.align import AlignAndMove
->>>>>>> 89e7c09 (swapped out pp for allign)
-=======
-# from autonomous_state_machine.pp import PurePursuit
-from autonomous_state_machine.align import AlignAndMove
->>>>>>> 89e7c09 (swapped out pp for allign)
 import numpy as np
 import math
-from std_msgs.msg import Float64MultiArray
 
 TOLERANCE = 2
 
@@ -32,26 +20,6 @@ class NewControllerState(State):
                 self.shared_data.logger.error("[NewControllerState] odom waypoints not ready — cannot init controller")
                 self.shared_data.new_waypoints_flag = False
                 return
-<<<<<<< HEAD
-<<<<<<< HEAD
-            diff = np.array(waypoints[-1]) - np.array(waypoints[-2])
-            next_orientation = math.atan2(diff[1], diff[0])
-            self.shared_data.logger.info(f"[NewControllerState] Next orientation calculated: {next_orientation}")
-            if CONTROLLER_TYPE == "align":
-                self.shared_data.controller = AlignAndMove(waypoints)
-                self.shared_data.controller.start_next_target()
-                self.shared_data.logger.info("[NewControllerState] AlignAndMove controller initialized with odom waypoints.")
-            else:
-                self.shared_data.controller = PurePursuit(
-                    waypoints,
-                    self.shared_data.cur_heading,
-                    next_orientation,
-                    tolerance=TOLERANCE
-                )
-                self.shared_data.logger.info("[NewControllerState] PurePursuit controller initialized with odom waypoints.")
-=======
-=======
->>>>>>> 89e7c09 (swapped out pp for allign)
 
             # # --- PurePursuit (commented out for debugging) ---
             # diff = np.array(waypoints[-1]) - np.array(waypoints[-2])
@@ -69,14 +37,6 @@ class NewControllerState(State):
             self.shared_data.controller = AlignAndMove(waypoints)
             self.shared_data.controller.start_next_target()
             self.shared_data.logger.info("[NewControllerState] AlignAndMove controller initialized with odom waypoints.")
-
-<<<<<<< HEAD
->>>>>>> 89e7c09 (swapped out pp for allign)
-=======
->>>>>>> 89e7c09 (swapped out pp for allign)
-            self.shared_data.new_waypoints_flag = False
-            self.shared_data.obstacle_avoidance_running = False
-            self.shared_data.logger.info("[NewControllerState] Flags updated.")
 
     def step(self):
         with self.shared_data.mutex:

@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 
-# import sys
-# print("Python version", sys.version)
-# print("Python executable", sys.executable)
-
 """http://wiki.ros.org/mavros for topic ref"""
 
-from autonomous_state_machine.utils import on_new_gps_msg, on_new_heading_msg, on_receive_new_gps_waypoint, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg, on_new_global_odom_msg#, heartbeat_reset
+from autonomous_state_machine.utils import on_new_gps_msg, on_new_heading_msg, on_receive_new_gps_waypoint, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg
 import numpy as np
 import rclpy
 import rclpy.time
@@ -16,15 +12,10 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import TwistStamped, PointStamped, Twist
 from nav_msgs.msg import Odometry
-from std_msgs.msg import Float64MultiArray, String, Bool
-import rclpy.duration
+from std_msgs.msg import Float64MultiArray, String
 from sensor_msgs.msg import NavSatFix, PointCloud2, Imu
 from time import time
 from autonomous_state_machine.global_map import GlobalMapManager
-
-# from autonomous_state_machine.gps_to_ned import GPS_2_NED
-# from autonomous_state_machine.pp import PurePursuit
-# from autonomous_state_machine.spiral_generation import get_spiral
 
 from autonomous_state_machine.states.state_class import State
 from autonomous_state_machine.states.state_class import StateInstance
@@ -37,7 +28,6 @@ from autonomous_state_machine.states.retry_state import RetryState
 from autonomous_state_machine.states.new_obstacle_avoidance_controller_state import NewObstacleAvoidanceControllerState
 from autonomous_state_machine.states.drive_state import DriveState
 from autonomous_state_machine.states.validating_state import ValidatingState
-# from autonomous_state_machine.states.heartbeat_state import HeartbeatState
 from autonomous_state_machine.states.go_to_object_state import GoToObjectState
 from autonomous_state_machine.states.spin_state import SpinState
 from autonomous_state_machine.states.backward_spiral_state import BackwardSpiralState
@@ -113,10 +103,13 @@ class AutonomousStateMachine(Node):
         pt.point.x = float(x_map)
         pt.point.y = float(y_map)
         try:
+            print("TRANSFORM ATTEMPT: Transforming goal from map to odom frame...")
             t = self._tf_buffer.lookup_transform('odom', 'map', rclpy.time.Time())
             out = tf2_geometry_msgs.do_transform_point(pt, t)
+            print("TRANSFORM SUCCESS: Goal in odom frame is ({:.2f}, {:.2f})".format(out.point.x, out.point.y))
             return (out.point.x, out.point.y)
         except Exception:
+            print("TRANSFORM ERROR:Failed to transform goal to odom frame")
             return (x_map, y_map)  # fallback: in sim map≡odom so values are identical
 
     def _convert_waypoints_to_odom(self):
@@ -265,9 +258,7 @@ class AutonomousStateMachine(Node):
         self.create_subscription(Float64MultiArray, self.shared_data.OBJECT_TOPIC_NAME, lambda msg: found_object(msg, self.shared_data), 10)
         self.create_subscription(Float64MultiArray, self.shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME, lambda msg: on_receive_new_obstacle_avoidance_waypoints(msg, self.shared_data), 10)
         self.create_subscription(Odometry, self.shared_data.LOCAL_ODOM_TOPIC, lambda msg: on_new_local_odom_msg(msg, self.shared_data), qos_profile)
-        # self.create_subscription(Odometry, self.shared_data.GLOBAL_ODOM_TOPIC, lambda msg: on_new_global_odom_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(PointCloud2, '/autonomous/obstacle_avoidance/oakd/pointcloud', self._on_pointcloud, qos_profile)
-        # self.create_subscription(Bool, self.shared_data.HEARTBEAT_TOPIC, lambda msg: heartbeat_reset(msg, self.shared_data), 10)
         self.get_logger().info("[StartState] Subscriber initialization complete.")
 
     def setup_publishers(self):
@@ -292,7 +283,6 @@ class AutonomousStateMachine(Node):
         self.state_instance.go_to_ar_state = GoToARState(self.shared_data, self.state_instance)
         self.state_instance.go_to_obj_state = GoToObjectState(self.shared_data, self.state_instance)
         self.state_instance.circle_state = CircleState(self.shared_data, self.state_instance)
-        # self.state_instance.heartbeat_state = HeartbeatState(self.shared_data, self.state_instance)
 
 
 def main(args=None):

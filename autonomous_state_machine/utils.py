@@ -163,17 +163,6 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints: Fl
     # no-op so the subscription doesn't error out but doesn't double-trigger.
     pass
 
-# def heartbeat_reset(msg, shared_data):
-#     # Acquire the mutex to ensure thread-safe access to shared_data
-#     shared_data.mutex.acquire()
-#     # Update the last heartbeat time
-#     shared_data.last_heartbeat_time = time()
-#     # If last_heartbeat_pos is empty, append the current position
-#     if not shared_data.last_heartbeat_pos:
-#         shared_data.last_heartbeat_pos.append(shared_data.cur_position)
-#     # Release the mutex after updating shared_data
-#     shared_data.mutex.release()
-
 def found_object(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
@@ -217,36 +206,9 @@ def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
     try:
         ox = msg.pose.pose.position.x
         oy = msg.pose.pose.position.y
-
-        if shared_data._prev_local_odom_pos is not None:
-            dx = ox - shared_data._prev_local_odom_pos[0]
-            dy = oy - shared_data._prev_local_odom_pos[1]
-            shared_data.segment_distance += math.sqrt(dx*dx + dy*dy)
-
         shared_data.local_odom_position = (ox, oy)
         shared_data._prev_local_odom_pos = (ox, oy)
         shared_data.odom_ready = True
-
-        if not shared_data.odom_bias_set and shared_data.gps_ned_to_map_offset is not None:
-            dx_off, dy_off = shared_data.gps_ned_to_map_offset
-            gx, gy = shared_data.global_odom_position
-            recalib = (gx + dx_off, gy + dy_off)
-            shared_data.odom_bias = (recalib[0] - ox, recalib[1] - oy)
-            shared_data.odom_bias_set = True
-    finally:
-        shared_data.mutex.release()
-
-def on_new_global_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
-    shared_data.mutex.acquire()
-    try:
-        gx = msg.pose.pose.position.x
-        gy = msg.pose.pose.position.y
-        shared_data.global_odom_position = (gx, gy)
-        shared_data.global_odom_ready = True
-
-        if shared_data.gps_ned_to_map_offset is None and shared_data.cur_position is not None:
-            cx, cy = shared_data.cur_position
-            shared_data.gps_ned_to_map_offset = (cx - gx, cy - gy)
     finally:
         shared_data.mutex.release()
 
