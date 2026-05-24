@@ -1,3 +1,4 @@
+import math
 import numpy as np
 from scipy.interpolate import CubicSpline
 from scipy.integrate import quad
@@ -27,6 +28,25 @@ class PurePursuit():
 
   def did_reach_goal(self):
     return self.reached_goal
+
+  def calc_velocity(self, shared_data):
+    """Return (left_wheel, right_wheel, done) using the same steering-radius
+    conversion that DriveState previously handled inline."""
+    if shared_data.local_odom_position is None or shared_data.cur_heading is None:
+      return None, None, False
+    heading = math.atan2(math.sin(shared_data.cur_heading), math.cos(shared_data.cur_heading))
+    effective_speed = max(0.0, min(shared_data.cur_speed, shared_data.MAX_AUTON_SPEED))
+    ox, oy = shared_data.local_odom_position
+    steering_radius = self.calc_steering([ox, oy, heading])
+    if not steering_radius or abs(steering_radius) < 1e-6:
+      steering_output = 0.0
+    else:
+      steering_output = shared_data.STEERING_CONST * effective_speed / steering_radius
+    max_steer = shared_data.AUTON_SPEED * 0.9
+    steering_output = max(min(steering_output, max_steer), -max_steer)
+    left = shared_data.AUTON_SPEED - steering_output
+    right = shared_data.AUTON_SPEED + steering_output
+    return left, right, self.did_reach_goal()
 
   def check_should_redo_goal(self, cur_pose):
     cur_pt = cur_pose[:2]

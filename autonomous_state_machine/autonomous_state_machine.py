@@ -188,6 +188,8 @@ class AutonomousStateMachine(Node):
             print(f"[OA] Triggered from pointcloud, path={len(path)} waypoints")
 
     def _tick(self):
+        old_state = self.cur_state.__class__.__name__
+
         # Re-transform goal to odom only when new waypoints arrived (dirty flag = O(1))
         if self.shared_data.goal_map_xy is not None and self.shared_data.goal_dirty:
             self.shared_data.goal_odom = self._transform_goal_to_odom(*self.shared_data.goal_map_xy)
@@ -205,6 +207,7 @@ class AutonomousStateMachine(Node):
             else:
                 self._goal_skip_counter = 0
                 d = np.linalg.norm(np.array(odom_pos) - np.array(goal))
+                print(f"[GoalCheck] distance to goal: {d:.2f}m")
                 if d < 2.0:
                     print(f"[GoalCheck] GOAL REACHED ({d:.2f}m) — entering validating_state")
                     # Mark PP controller reached so ValidatingState sees did_reach_goal()=True.
@@ -243,6 +246,10 @@ class AutonomousStateMachine(Node):
                             f.write("--- Autonomous State Machine: waiting for pose data ---\n")
                     except Exception:
                         pass
+        
+        new_state = self.cur_state.__class__.__name__
+        if old_state != new_state:
+            print(f"[STATE TRANSITION] {old_state} → {new_state}")
 
     def setup_subscribers(self):
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, durability=QoSDurabilityPolicy.VOLATILE, depth=10)

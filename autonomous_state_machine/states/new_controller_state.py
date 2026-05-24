@@ -37,6 +37,7 @@ class NewControllerState(State):
             # --- AlignAndMove (debug replacement for PurePursuit) ---
             self.shared_data.controller = AlignAndMove(waypoints)
             self.shared_data.controller.start_next_target()
+            self.shared_data.new_waypoints_flag = False
             self.shared_data.logger.info("[NewControllerState] AlignAndMove controller initialized with odom waypoints.")
 
     def step(self):

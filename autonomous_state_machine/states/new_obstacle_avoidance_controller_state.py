@@ -160,8 +160,6 @@ class NewObstacleAvoidanceControllerState(State):
                     controller.start_next_target()
                     self.shared_data.obstacle_avoidance_controller = controller
 
-                # Let AlignAndMove publish wheel commands; it returns True when the
-                # current target is reached (and advances its internal list).
                 target_done = controller.step(self.shared_data)
                 if target_done:
                     # If there are more targets, start the next one
