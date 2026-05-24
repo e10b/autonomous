@@ -2,10 +2,12 @@ import math
 from time import time
 from autonomous_state_machine.gps_to_ned import GPS_2_NED
 from autonomous_state_machine.shared_data import SharedData
+import rclpy
 from sensor_msgs.msg import NavSatFix, Imu
 from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
+from robot_localization.srv import FromLL
 
 def on_new_gps_msg(msg: NavSatFix, shared_data: SharedData) -> None:
     with shared_data.mutex:
@@ -22,7 +24,7 @@ def on_new_heading_msg(msg: Imu, shared_data: SharedData) -> None:
         q = msg.orientation
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-        shared_data.cur_heading = yaw
+        shared_data.cur_heading_raw = yaw
         shared_data.heading_ready = True
 
 def on_new_velocity_msg(msg: TwistStamped, shared_data: SharedData) -> None:
@@ -41,6 +43,42 @@ def on_new_velocity_msg(msg: TwistStamped, shared_data: SharedData) -> None:
 
     # Release the mutex after updating shared_data
     shared_data.mutex.release()
+    
+def on_receive_new_gps_waypoint_llclient(gps_waypoint_list: Float64MultiArray, shared_data: SharedData) -> None:
+    shared_data.logger.info(f"Received GPS waypoint list for LL client: {gps_waypoint_list}")
+
+    data = gps_waypoint_list.data
+    if len(data) < 2:
+        shared_data.logger.error("Received GPS waypoint list is too short.")
+        return
+
+    lat, lon = data[0], data[1]
+
+    req = FromLL.Request()
+    req.ll_point.latitude = float(lat)
+    req.ll_point.longitude = float(lon)
+    req.ll_point.altitude = 0.0
+
+    future = shared_data.llclient.call_async(req)
+
+    def _fromll_done(fut):
+        try:
+            resp = fut.result()
+            if resp is None:
+                shared_data.logger.error("FromLL returned None")
+                return
+            map_pt = resp.map_point
+            with shared_data.mutex:
+                xy = (map_pt.x, map_pt.y)
+                shared_data.new_waypoints = [shared_data.cur_position, xy]
+                shared_data.goal_map_xy = xy
+                shared_data.goal_dirty = True
+                shared_data.new_waypoints_flag = True
+                shared_data.logger.info(f"FromLL: lat={lat}, lon={lon} -> xy={xy}")
+        except Exception as e:
+            shared_data.logger.exception("FromLL call failed: %s", e)
+
+    future.add_done_callback(_fromll_done)
 
 def on_receive_new_gps_waypoint(gps_waypoint_list: Float64MultiArray, shared_data: SharedData) -> None:
     """
@@ -209,6 +247,13 @@ def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
         shared_data.local_odom_position = (ox, oy)
         shared_data._prev_local_odom_pos = (ox, oy)
         shared_data.odom_ready = True
+        
+        # Get odometry orientation data
+        orientation_q = msg.pose.pose.orientation
+        yaw = math.atan2(2.0 * (orientation_q.w * orientation_q.z + orientation_q.x * orientation_q.y),
+                         1.0 - 2.0 * (orientation_q.y * orientation_q.y + orientation_q.z * orientation_q.z))
+        shared_data.cur_heading = yaw
+        # print(f"Updated local odometry position: {shared_data.local_odom_position}, heading: {math.degrees(shared_data.cur_heading)} degrees")
     finally:
         shared_data.mutex.release()
 

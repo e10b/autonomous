@@ -10,7 +10,7 @@ GRID_CELL_SIZE = 0.10
 PRINT_ASCII_MAP = True
 
 # Simulation Flag: Turns off degradation for sim, turns it on for real
-SIMULATION = True
+SIMULATION = False
 
 # Navigation controller: "pure_pursuit" or "align"
 CONTROLLER_TYPE = "align"
@@ -20,6 +20,7 @@ BACKUP_DURATION = 2.0
 OA_COOLDOWN_EXTRA = 1.0        # extra seconds added to BACKUP_DURATION for OA re-trigger cooldown
 OA_CORRIDOR_HALF_CELLS = 8     # half-width (in grid cells) of the rover body corridor checked for obstacles
 OA_ROBOT_RADIUS_M = 1.0        # rover body radius (meters) used to inflate obstacles in pathfinding
+MIN_OBSTACLE_SIZE = 6          # minimum connected obstacle size in occupied grid cells before triggering OA
 
 # Pointcloud → local grid conversion
 # OAK-D optical frame: x=right, y=down, z=forward.

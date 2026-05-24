@@ -45,7 +45,8 @@ class SharedData():
 
     ################ global variables ################
     cur_position = None  # current position in x and y converted from gps intput
-    cur_heading = None  # current orientation in radians counter clockwise
+    cur_heading = None  # current orientation in radians counter clockwise as calculated from local odometry
+    cur_heading_raw = None  # current orientation in radians counter clockwise received directly from compass
     cur_speed = 0     # we'll get this from 'global_position/gp_vel', NOT SAME UNITS AS AUTON SPEED
     gps_ready = False
     heading_ready = False

@@ -17,7 +17,6 @@ from sensor_msgs.msg import NavSatFix, PointCloud2, Imu
 from time import time
 from autonomous_state_machine.global_map import GlobalMapManager
 
-from autonomous_state_machine.states.state_class import State
 from autonomous_state_machine.states.state_class import StateInstance
 
 from autonomous_state_machine.states.start_state import StartState
@@ -35,6 +34,8 @@ from autonomous_state_machine.states.go_to_ar_state import GoToARState
 from autonomous_state_machine.states.circle_state import CircleState
 from autonomous_state_machine.shared_data import SharedData
 import autonomous_state_machine.config as config
+
+from robot_localization.srv import FromLL
 
 RATE = 30
 
@@ -71,6 +72,47 @@ class AutonomousStateMachine(Node):
         self._map_print_counter = 0
         self.timer = self.create_timer(1.0 / RATE, self._tick)
 
+        # LL client for goal transofrm
+        self.shared_data.llclient = self.create_client(FromLL, '/fromLL')
+        while not self.shared_data.llclient.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Waiting for FromLL service...')
+        self.get_logger().info('FromLL service is available.')
+
+    @staticmethod
+    def _largest_connected_obstacle_size(binary_grid: np.ndarray) -> int:
+        """Return the size in cells of the largest 4-connected obstacle blob."""
+        if binary_grid.size == 0:
+            return 0
+
+        occupied = np.argwhere(binary_grid > 0)
+        if occupied.size == 0:
+            return 0
+
+        occupied_set = {tuple(cell) for cell in occupied}
+        visited = set()
+        largest = 0
+
+        for start in occupied_set:
+            if start in visited:
+                continue
+
+            stack = [start]
+            visited.add(start)
+            component_size = 0
+
+            while stack:
+                row, col = stack.pop()
+                component_size += 1
+
+                for d_row, d_col in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    neighbor = (row + d_row, col + d_col)
+                    if neighbor in occupied_set and neighbor not in visited:
+                        visited.add(neighbor)
+                        stack.append(neighbor)
+
+            largest = max(largest, component_size)
+
+        return largest
 
     @staticmethod
     def _parse_pointcloud2_xyz(msg: PointCloud2) -> np.ndarray:
@@ -163,7 +205,13 @@ class AutonomousStateMachine(Node):
         cx  = CELLS // 2
         top = max(0, cx - config.OA_CORRIDOR_HALF_CELLS)
         bot = min(CELLS, cx + config.OA_CORRIDOR_HALF_CELLS + 1)
-        if not local_grid[top:bot, :].any():
+        corridor_grid = local_grid[top:bot, :]
+        if not corridor_grid.any():
+            return
+
+        largest_obstacle = self._largest_connected_obstacle_size(corridor_grid)
+        if largest_obstacle < config.MIN_OBSTACLE_SIZE:
+            print(f"[OA] Ignoring small obstacle blob ({largest_obstacle} cells < {config.MIN_OBSTACLE_SIZE})")
             return
 
         with self.shared_data.mutex:
@@ -207,6 +255,7 @@ class AutonomousStateMachine(Node):
             else:
                 self._goal_skip_counter = 0
                 d = np.linalg.norm(np.array(odom_pos) - np.array(goal))
+                print(f"[Current Goal] {goal}, Current Position: {odom_pos}")
                 print(f"[GoalCheck] distance to goal: {d:.2f}m")
                 if d < 2.0:
                     print(f"[GoalCheck] GOAL REACHED ({d:.2f}m) — entering validating_state")
