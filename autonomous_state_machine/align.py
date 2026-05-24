@@ -12,11 +12,9 @@ class AlignAndMove():
     as a thin compatibility wrapper that publishes the computed command.
     """
 
-    def __init__(self, pts, start_ang=None, waypoint_threshold: float = 0.2, URC_requirement=3):
+    def __init__(self, pts, start_ang=None, waypoint_threshold: float = 0.2):
         self.user_pts = list(pts)
         self.user_unreached_pts = list(pts)
-        self.final = np.array(pts[-1])
-        self.URC_requirement = URC_requirement
         self.current_target = None
         self.waypoint_threshold = waypoint_threshold
         self.reached_goal = False
@@ -134,9 +132,6 @@ class AlignAndMove():
     #     return r
 
     def check_should_redo_goal(self, cur_pose):
-        cur_pt = cur_pose[:2]
-        if np.linalg.norm(self.final-cur_pt) >= self.URC_requirement:
-            self.reached_goal = False  # redo the last goal point
         return not self.reached_goal
 
     def start_next_target(self):

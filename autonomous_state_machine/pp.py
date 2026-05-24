@@ -3,6 +3,7 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 from scipy.integrate import quad
 from scipy.spatial import KDTree
+from geometry_msgs.msg import Twist
 
 
 class PurePursuit():
@@ -48,10 +49,18 @@ class PurePursuit():
     right = shared_data.AUTON_SPEED + steering_output
     return left, right, self.did_reach_goal()
 
+  def step(self, shared_data) -> bool:
+    """Calls calc_velocity, publishes the result, and returns done."""
+    left, right, done = self.calc_velocity(shared_data)
+    if left is None:
+      return False
+    vel = Twist()
+    vel.linear.x = (left + right) / 2.0
+    vel.angular.z = (right - left) / 1.53
+    shared_data.auton_publisher.publish(vel)
+    return done
+
   def check_should_redo_goal(self, cur_pose):
-    cur_pt = cur_pose[:2]
-    if np.linalg.norm(self.final-cur_pt) >= self.URC_requirement:
-      self.reached_goal = False  # redo the last goal point
     return not self.reached_goal
 
   def is_outside_lookahead(self):
