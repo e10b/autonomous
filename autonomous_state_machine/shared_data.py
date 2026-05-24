@@ -8,6 +8,7 @@ class SharedData():
 
     HIST_POSE_LEN = 5 # used to be 100 but decreased to 60 for time (either is arbitrary)
     AUTON_SPEED = 1.5
+    AUTON_TURN_CONST = 0.75
     MAX_AUTON_SPEED = 3
     SPIN_SPEED = 1.0
     STEERING_CONST = 4.5

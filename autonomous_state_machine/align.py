@@ -1,5 +1,4 @@
 import math
-import numpy as np
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
 
@@ -18,6 +17,8 @@ class AlignAndMove():
         self.current_target = None
         self.waypoint_threshold = waypoint_threshold
         self.reached_goal = False
+        self.linear_velocity = 0.0
+        self.angular_velocity = 0.0
 
     @property
     def waypoints(self):
@@ -31,9 +32,11 @@ class AlignAndMove():
         return self.current_target
 
     def calc_velocity(self, shared_data):
-        """Return wheel speeds for the current target without publishing them."""
+        """Compute and store the commanded linear/angular velocity for the current target."""
         if self.current_target is None:
-            return 0.0, 0.0, True
+            self.linear_velocity = 0.0
+            self.angular_velocity = 0.0
+            return self.linear_velocity, self.angular_velocity, True
 
         if shared_data.local_odom_position is None or shared_data.cur_heading is None:
             return None, None, False
@@ -54,11 +57,13 @@ class AlignAndMove():
                 self.user_unreached_pts.pop(0)
             self.current_target = None
             self.phase = None
+            self.linear_velocity = 0.0
+            self.angular_velocity = 0.0
             if self.user_unreached_pts:
                 self.start_next_target()
-                return 0.0, 0.0, False
+                return self.linear_velocity, self.angular_velocity, False
             self.reached_goal = True
-            return 0.0, 0.0, True
+            return self.linear_velocity, self.angular_velocity, True
 
         # NOTE: obstacle-avoidance waypoints use the same (x,z)
         desired_ang = math.atan2(dz, dx)
@@ -67,8 +72,9 @@ class AlignAndMove():
 
         # Align phase: rotate in place until heading error is small.
         ANG_THRESHOLD = 0.05 # 2.8 degrees
-        TURN_SPEED = 0.4 * shared_data.AUTON_SPEED
+        TURN_SPEED = shared_data.AUTON_TURN_CONST * shared_data.AUTON_SPEED
 
+        # TODO: switch left and right vels with angular and linear vels
         if self.phase == "align":
             if abs(ang_diff) > ANG_THRESHOLD:
                 # Turn in place: left negative, right positive for left turn
@@ -81,25 +87,32 @@ class AlignAndMove():
                     turn = enforced
                 else:
                     turn = raw_turn
-                left = -turn
-                right = turn
-                left = clamp(left, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-                right = clamp(right, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-                print(f"[AlignAndMove] TURNING: ang_diff={ang_diff:.3f} rad -> left={left:.2f}, right={right:.2f}")
-                return left, right, False
+                self.linear_velocity = 0.0
+                self.angular_velocity = (2.0 * turn) / 1.53
+                self.angular_velocity = clamp(
+                    self.angular_velocity,
+                    -shared_data.MAX_AUTON_SPEED,
+                    shared_data.MAX_AUTON_SPEED,
+                )
+                print(f"[AlignAndMove] TURNING: ang_diff={ang_diff:.3f} rad -> linear={self.linear_velocity:.2f}, angular={self.angular_velocity:.2f}")
+                return self.linear_velocity, self.angular_velocity, False
 
             # Aligned, switch to moving forward.
             self.phase = "move"
             print(f"[AlignAndMove] ALIGNED -> switching to MOVE phase (ang_diff={ang_diff:.3f})")
-            return 0.0, 0.0, False
+            self.linear_velocity = 0.0
+            self.angular_velocity = 0.0
+            return self.linear_velocity, self.angular_velocity, False
 
         # Move phase: drive straight toward target (no steering).
-        left = shared_data.AUTON_SPEED
-        right = shared_data.AUTON_SPEED
-        left = clamp(left, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-        right = clamp(right, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-        print(f"[AlignAndMove] MOVING: dist={distance:.3f}m -> left={left:.2f}, right={right:.2f}")
-        return left, right, False
+        self.linear_velocity = clamp(
+            shared_data.AUTON_SPEED,
+            -shared_data.MAX_AUTON_SPEED,
+            shared_data.MAX_AUTON_SPEED,
+        )
+        self.angular_velocity = 0.0
+        print(f"[AlignAndMove] MOVING: dist={distance:.3f}m -> linear={self.linear_velocity:.2f}, angular={self.angular_velocity:.2f}")
+        return self.linear_velocity, self.angular_velocity, False
 
     # def calc_steering(self, cur_pose):
     #     """Return a steering radius similar to PurePursuit.calc_steering(cur_pose).
@@ -151,11 +164,11 @@ class AlignAndMove():
 
     def step(self, shared_data) -> bool:
         """Calls calc_velocity, publishes the result, and returns target_done."""
-        left, right, target_done = self.calc_velocity(shared_data)
-        if left is None:
+        linear_velocity, angular_velocity, target_done = self.calc_velocity(shared_data)
+        if linear_velocity is None:
             return False
         vel = Twist()
-        vel.linear.x = (left + right) / 2.0
-        vel.angular.z = (right - left) / 1.53
+        vel.linear.x = linear_velocity
+        vel.angular.z = angular_velocity
         shared_data.auton_publisher.publish(vel)
         return target_done
