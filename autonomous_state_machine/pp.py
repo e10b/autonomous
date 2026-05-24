@@ -4,6 +4,7 @@ from scipy.interpolate import CubicSpline
 from scipy.integrate import quad
 from scipy.spatial import KDTree
 from geometry_msgs.msg import Twist
+from autonomous_state_machine.utils import clamp
 
 
 class PurePursuit():
@@ -31,22 +32,34 @@ class PurePursuit():
     return self.reached_goal
 
   def calc_velocity(self, shared_data):
-    """Return (left_wheel, right_wheel, done) using the same steering-radius
-    conversion that DriveState previously handled inline."""
+    """Return (left_wheel, right_wheel, done) without going through calc_steering.
+
+    Uses the lookahead point from next_point() and a direct angular-error
+    P-controller so steering is never zero due to cur_speed being 0 at startup.
+    """
     if shared_data.local_odom_position is None or shared_data.cur_heading is None:
       return None, None, False
-    heading = math.atan2(math.sin(shared_data.cur_heading), math.cos(shared_data.cur_heading))
-    effective_speed = max(0.0, min(shared_data.cur_speed, shared_data.MAX_AUTON_SPEED))
+
     ox, oy = shared_data.local_odom_position
-    steering_radius = self.calc_steering([ox, oy, heading])
-    if not steering_radius or abs(steering_radius) < 1e-6:
-      steering_output = 0.0
-    else:
-      steering_output = shared_data.STEERING_CONST * effective_speed / steering_radius
+    heading = math.atan2(math.sin(shared_data.cur_heading), math.cos(shared_data.cur_heading))
+
+    if np.linalg.norm(self.final - np.array([ox, oy])) < self.tolerance:
+      self.reached_goal = True
+
+    next_pt = self.next_point([ox, oy])
+    if next_pt is None:
+      return 0.0, 0.0, self.did_reach_goal()
+
+    dx = next_pt[0] - ox
+    dy = next_pt[1] - oy
+    desired_ang = math.atan2(dy, dx)
+    ang_diff = math.atan2(math.sin(desired_ang - heading), math.cos(desired_ang - heading))
+
     max_steer = shared_data.AUTON_SPEED * 0.9
-    steering_output = max(min(steering_output, max_steer), -max_steer)
-    left = shared_data.AUTON_SPEED - steering_output
-    right = shared_data.AUTON_SPEED + steering_output
+    steering_output = clamp(shared_data.STEERING_CONST * ang_diff, -max_steer, max_steer)
+
+    left  = clamp(shared_data.AUTON_SPEED - steering_output, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+    right = clamp(shared_data.AUTON_SPEED + steering_output, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
     return left, right, self.did_reach_goal()
 
   def step(self, shared_data) -> bool:
@@ -102,30 +115,30 @@ class PurePursuit():
 
     return self.waypoints[self.look_ahead_point_index]
 
-  def calc_steering(self, cur_pose):
-    cur_pt = cur_pose[:2]
-    cur_ang = cur_pose[2]
+  # def calc_steering(self, cur_pose):
+  #   cur_pt = cur_pose[:2]
+  #   cur_ang = cur_pose[2]
 
-    next_pt = self.next_point(cur_pt)
-    if next_pt is None: return float("inf") # mean finished. don't steer
+  #   next_pt = self.next_point(cur_pt)
+  #   if next_pt is None: return float("inf") # mean finished. don't steer
 
-    if np.linalg.norm(self.final-cur_pt) < self.tolerance:
-      self.reached_goal = True
+  #   if np.linalg.norm(self.final-cur_pt) < self.tolerance:
+  #     self.reached_goal = True
 
-    diff = next_pt-cur_pt
-    d = np.linalg.norm(diff)
-    if d < 1e-6: # safety check
-      return float("inf")
+  #   diff = next_pt-cur_pt
+  #   d = np.linalg.norm(diff)
+  #   if d < 1e-6: # safety check
+  #     return float("inf")
 
-    # more safety checks
-    des_ang = np.arctan2(diff[1], diff[0])
-    ang_diff = np.arctan2(np.sin(des_ang-cur_ang), np.cos(des_ang-cur_ang))
-    sin_ang = np.sin(ang_diff)
-    if abs(sin_ang) < 1e-6:
-      return float("inf")
+  #   # more safety checks
+  #   des_ang = np.arctan2(diff[1], diff[0])
+  #   ang_diff = np.arctan2(np.sin(des_ang-cur_ang), np.cos(des_ang-cur_ang))
+  #   sin_ang = np.sin(ang_diff)
+  #   if abs(sin_ang) < 1e-6:
+  #     return float("inf")
 
-    r = d / (2 * sin_ang)
-    return r # radius of steering
+  #   r = d / (2 * sin_ang)
+  #   return r # radius of steering
 
   @staticmethod
   def generate_path(pts, angs, heading_persistence=1):
