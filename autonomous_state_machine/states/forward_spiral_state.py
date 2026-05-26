@@ -1,10 +1,8 @@
 from autonomous_state_machine.states.state_class import State
-from geometry_msgs.msg import Twist
 from autonomous_state_machine.spiral_generation import get_spiral
 from autonomous_state_machine.pp import PurePursuit
 from time import time
 import math
-from autonomous_state_machine.utils import clamp
 
 class ForwardSpiralState(State):
     def __init__(self, shared_data, state_instance):
@@ -30,15 +28,7 @@ class ForwardSpiralState(State):
 
     def step(self) -> State:
         with self.shared_data.mutex:
-            cur_pose = [self.shared_data.cur_position[0], self.shared_data.cur_position[1], self.shared_data.cur_heading]
-            steering_radius = self.shared_data.controller.calc_steering(cur_pose)
-            steering_output = self.shared_data.STEERING_CONST * self.shared_data.AUTON_SPEED / steering_radius / 2
-            left = clamp(self.shared_data.AUTON_SPEED - steering_output, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            right = clamp(self.shared_data.AUTON_SPEED + steering_output, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            vel = Twist()
-            vel.linear.x = (left + right) / 2.0
-            vel.angular.z = (right - left) / 1.53
-            self.shared_data.auton_publisher.publish(vel)
+            self.shared_data.controller.step(self.shared_data)
 
             print(f"found flag: {self.shared_data.found_ar_flag}, should look: {self.shared_data.should_look_for_ar}")
 
