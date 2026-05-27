@@ -75,10 +75,10 @@ class AutonomousStateMachine(Node):
         self.timer = self.create_timer(1.0 / RATE, self._tick)
 
         # LL client for goal transofrm
-        self.shared_data.llclient = self.create_client(FromLL, '/fromLL')
-        while not self.shared_data.llclient.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('Waiting for FromLL service...')
-        self.get_logger().info('FromLL service is available.')
+        # self.shared_data.llclient = self.create_client(FromLL, '/fromLL')
+        # while not self.shared_data.llclient.wait_for_service(timeout_sec=1.0):
+        #     self.get_logger().info('Waiting for FromLL service...')
+        # self.get_logger().info('FromLL service is available.')
 
     @staticmethod
     def _largest_connected_obstacle_size(binary_grid: np.ndarray) -> int:

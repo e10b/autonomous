@@ -115,9 +115,27 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
 
         # data = gps_waypoint_list.data
         shared_data.go_home_position = shared_data.cur_position
-        shared_data.target_id = auton_input.object_id
+
+        # Route target ids to the correct search channel.
+        # object_id > 3 means ArUco target, else object target.
         shared_data.should_look_for_ar = auton_input.object_id > 3
         shared_data.should_look_for_obj = auton_input.object_id > 0 and not shared_data.should_look_for_ar
+
+        if shared_data.should_look_for_ar:
+            # AutonInput AR enums are ARUCO_0..ARUCO_4 = 4..8, while
+            # /artag_position publishes marker IDs as 0..4.
+            shared_data.target_id = int(auton_input.object_id) - 4
+            shared_data.target_obj_id = 0
+            shared_data.found_obj_flag = False
+        elif shared_data.should_look_for_obj:
+            shared_data.target_obj_id = int(auton_input.object_id)
+            shared_data.target_id = 0
+            shared_data.found_ar_flag = False
+        else:
+            shared_data.target_id = 0
+            shared_data.target_obj_id = 0
+
+        shared_data.counter = 0
 
 
         # # Waypoints start at index 6, each waypoint is [lat, lon]
@@ -139,7 +157,8 @@ def found_ar_tag(msg: Float64MultiArray, shared_data: SharedData) -> None:
     shared_data.logger.info(f"Received AR tag message: {msg.data}")
 
     # Check if the detected AR tag matches the primary target ID
-    if shared_data.target_id == msg.data[-1]:
+    detected_id = int(msg.data[-1])
+    if int(shared_data.target_id) == detected_id:
         [shared_data.ar_cX, shared_data.ar_cY,
         shared_data.ar_size, shared_data.ar_id] = msg.data
         shared_data.found_ar_flag = True
@@ -147,13 +166,13 @@ def found_ar_tag(msg: Float64MultiArray, shared_data: SharedData) -> None:
         print(f"Found primary AR tag: id={shared_data.ar_id}, cX={shared_data.ar_cX}, cY={shared_data.ar_cY}, size={shared_data.ar_size}")
 
     # Check if the detected AR tag matches the secondary target ID
-    if hasattr(shared_data, 'target_id2') and shared_data.target_id2 == msg.data[3]:
+    if hasattr(shared_data, 'target_id2') and int(shared_data.target_id2) == int(msg.data[3]):
         [shared_data.ar_cX2, shared_data.ar_cY2,
         shared_data.ar_size2, shared_data.ar_id2] = msg.data
         print(f"Found secondary AR tag: id2={shared_data.ar_id2}, cX2={shared_data.ar_cX2}, cY2={shared_data.ar_cY2}, size2={shared_data.ar_size2}")
 
     # If the found AR tag does not match the primary target, release mutex and exit
-    if shared_data.ar_id != shared_data.target_id:
+    if int(shared_data.ar_id) != int(shared_data.target_id):
         print("AR tag ID does not match target. Exiting function.")
         shared_data.mutex.release()
         return

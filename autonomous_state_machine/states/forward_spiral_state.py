@@ -30,7 +30,13 @@ class ForwardSpiralState(State):
         with self.shared_data.mutex:
             self.shared_data.controller.step(self.shared_data)
 
-            print(f"found flag: {self.shared_data.found_ar_flag}, should look: {self.shared_data.should_look_for_ar}")
+            # print(f"found flag: {self.shared_data.found_ar_flag}, should look: {self.shared_data.should_look_for_ar}")
+            if self.shared_data.should_look_for_ar:
+                print("Searching for target ID:", self.shared_data.target_id)
+            elif self.shared_data.should_look_for_obj:
+                print("Searching for object ID:", self.shared_data.target_obj_id)
+            else:
+                print("Not searching for any object.")
 
             if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
                 print("Going to AR state!")
