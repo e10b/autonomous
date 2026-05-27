@@ -122,3 +122,4 @@ class SharedData():
 
     spiral_path_publisher = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True
     oa_path_publisher     = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True
+    llclient = None

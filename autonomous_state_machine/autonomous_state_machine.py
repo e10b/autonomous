@@ -2,7 +2,7 @@
 
 """http://wiki.ros.org/mavros for topic ref"""
 
-from autonomous_state_machine.utils import on_new_gps_msg, on_new_heading_msg, on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg
+from autonomous_state_machine.utils import on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg
 import numpy as np
 import rclpy
 import rclpy.time
@@ -80,10 +80,10 @@ class AutonomousStateMachine(Node):
         self.timer = self.create_timer(1.0 / RATE, self._tick)
 
         # LL client for goal transofrm
-        # self.shared_data.llclient = self.create_client(FromLL, '/fromLL')
-        # while not self.shared_data.llclient.wait_for_service(timeout_sec=1.0):
-        #     self.get_logger().info('Waiting for FromLL service...')
-        # self.get_logger().info('FromLL service is available.')
+        self.shared_data.llclient = self.create_client(FromLL, '/fromLL')
+        while not self.shared_data.llclient.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Waiting for FromLL service...')
+        self.get_logger().info('FromLL service is available.')
 
     @staticmethod
     def _largest_connected_obstacle_size(binary_grid: np.ndarray) -> int:
@@ -410,8 +410,8 @@ class AutonomousStateMachine(Node):
         # Initialize subscribers for all relevant topics
         self.get_logger().info("[StartState] Initializing subscribers...")
         
-        self.create_subscription(NavSatFix, self.shared_data.GPS_TOPIC_NAME, lambda msg: on_new_gps_msg(msg, self.shared_data), qos_profile)
-        self.create_subscription(Imu, self.shared_data.COMPASS_TOPIC_NAME, lambda msg: on_new_heading_msg(msg, self.shared_data), qos_profile)
+        # self.create_subscription(NavSatFix, self.shared_data.GPS_TOPIC_NAME, lambda msg: on_new_gps_msg(msg, self.shared_data), qos_profile)
+        # self.create_subscription(Imu, self.shared_data.COMPASS_TOPIC_NAME, lambda msg: on_new_heading_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(AutonInput, self.shared_data.AUTON_INPUT_TOPIC_NAME, lambda msg: on_receive_new_auton_input(msg, self.shared_data), 10)
         self.create_subscription(TwistStamped, self.shared_data.VELOCITY_TOPIC_NAME, lambda msg: on_new_velocity_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(Float64MultiArray, self.shared_data.ARTAG_TOPIC_NAME, lambda msg: found_ar_tag(msg, self.shared_data), 10)

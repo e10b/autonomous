@@ -10,24 +10,6 @@ from nav_msgs.msg import Odometry
 from robot_localization.srv import FromLL
 from custom_msg_types.msg import AutonInput
 
-def on_new_gps_msg(msg: NavSatFix, shared_data: SharedData) -> None:
-    with shared_data.mutex:
-        if shared_data.gps_converter is None:
-            shared_data.gps_converter = GPS_2_NED(msg.latitude, msg.longitude)
-        shared_data.cur_position = shared_data.gps_converter.gps_to_xy(msg.latitude, msg.longitude)
-        shared_data.position_history.append(shared_data.cur_position)
-        shared_data.gps_ready = True
-        with open("debug.txt", 'a') as f:
-            f.write(f"{shared_data.cur_position[0]}, {shared_data.cur_position[1]}, {shared_data.cur_heading}\n")
-
-def on_new_heading_msg(msg: Imu, shared_data: SharedData) -> None:
-    with shared_data.mutex:
-        q = msg.orientation
-        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-        shared_data.cur_heading_raw = yaw
-        shared_data.heading_ready = True
-
 def on_new_velocity_msg(msg: TwistStamped, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
@@ -101,23 +83,18 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
     uint8 object_id
     """
     shared_data.logger.info(f"Received Autonomous Input: {auton_input}")
-    shared_data.mutex.acquire()
-    try:
-        shared_data.logger.info(f"gps_converter: {shared_data.gps_converter}")
+    with shared_data.mutex:
         shared_data.logger.info(f"cur_position: {shared_data.cur_position}")
         shared_data.logger.info(f"cur_heading: {shared_data.cur_heading}")
 
-        if shared_data.gps_converter is None or \
-            shared_data.cur_position is None or \
+        if shared_data.cur_position is None or \
             shared_data.cur_heading is None:
             shared_data.logger.error("Required shared_data fields are not initialized. Exiting function.")
             return
 
-        # data = gps_waypoint_list.data
         shared_data.go_home_position = shared_data.cur_position
+        start_pos = shared_data.cur_position  # capture before async gap
 
-        # Route target ids to the correct search channel.
-        # object_id > 3 means ArUco target, else object target.
         shared_data.logger.info(f"Auton input object_id: {auton_input.object_id}")
         shared_data.should_look_for_ar = auton_input.object_id > 3
         shared_data.logger.info(f"Should_look_for_ar: {shared_data.should_look_for_ar}")
@@ -139,19 +116,35 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
 
         shared_data.counter = 0
 
+    # async but its super fast so its ok
+    lat, lon = auton_input.latitude, auton_input.longitude
+    req = FromLL.Request()
+    req.ll_point.latitude = float(lat)
+    req.ll_point.longitude = float(lon)
+    req.ll_point.altitude = 0.0
 
-        # # Waypoints start at index 6, each waypoint is [lat, lon]
-        # HEADER_SIZE = 6
-        shared_data.new_waypoints = [shared_data.cur_position, shared_data.gps_converter.gps_to_xy(auton_input.latitude, auton_input.longitude)]
+    future = shared_data.llclient.call_async(req)
 
-        shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
-        shared_data.goal_map_xy = tuple(shared_data.new_waypoints[-1])
-        shared_data.goal_dirty  = True
-        shared_data.new_waypoints_flag = True
-        shared_data.obstacle_avoidance_running = False
-        shared_data.new_obstacle_avoidance_waypoints_flag = False
-    finally:
-        shared_data.mutex.release()
+    def _fromll_done(fut):
+        try:
+            resp = fut.result()
+            if resp is None:
+                shared_data.logger.error("FromLL service call failed")
+                return
+            map_pt = resp.map_point
+            goal_pos = (map_pt.x, map_pt.y)
+            with shared_data.mutex:
+                shared_data.new_waypoints = [start_pos, goal_pos]
+                shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
+                shared_data.goal_map_xy = goal_pos
+                shared_data.goal_dirty  = True
+                shared_data.new_waypoints_flag = True
+                shared_data.obstacle_avoidance_running = False
+                shared_data.new_obstacle_avoidance_waypoints_flag = False
+        except Exception as e:
+            shared_data.logger.exception("FromLL call failed: %s", e)
+
+    future.add_done_callback(_fromll_done)
 
 def found_ar_tag(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
@@ -270,6 +263,9 @@ def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
         shared_data.local_odom_position = (ox, oy)
         shared_data._prev_local_odom_pos = (ox, oy)
         shared_data.odom_ready = True
+        shared_data.cur_position = (ox, oy)
+        shared_data.position_history.append(shared_data.cur_position)
+        shared_data.gps_ready = True
         
         # Get odometry orientation data
         orientation_q = msg.pose.pose.orientation
