@@ -113,4 +113,5 @@ class SharedData():
 
     global_map           = None   # GlobalMapManager instance
     last_oa_trigger_time = 0.0   # timestamp of last obstacle avoidance trigger
+    oa_resume_state      = ""    # class name of the state interrupted by OA
     logger               = None

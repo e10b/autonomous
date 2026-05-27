@@ -41,6 +41,11 @@ from robot_localization.srv import FromLL
 
 RATE = 30
 
+_OA_INTERRUPTIBLE = frozenset({
+    "ForwardSpiralState", "BackwardSpiralState", "DriveState",
+    "GoToARState", "GoToObjectState", "NewControllerState",
+})
+
 class AutonomousStateMachine(Node):
     def __init__(self):
         super().__init__("autonomous_state_machine")
@@ -297,6 +302,14 @@ class AutonomousStateMachine(Node):
         if self.shared_data.new_waypoints_flag:
             self._convert_waypoints_to_odom()
             self.cur_state = self.state_instance.new_controller_state
+
+        if (self.shared_data.new_obstacle_avoidance_waypoints_flag
+                and not self.shared_data.obstacle_avoidance_running
+                and not self.shared_data.new_waypoints_flag
+                and old_state in _OA_INTERRUPTIBLE):
+            self.shared_data.oa_resume_state = old_state
+            self.shared_data.obstacle_avoidance_running = True
+            self.cur_state = self.state_instance.new_obstacle_avoidance_controller_state
 
         if self.last_state != self.cur_state:
             self.last_state.on_exit()

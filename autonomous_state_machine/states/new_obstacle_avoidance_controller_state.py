@@ -75,6 +75,45 @@ class NewObstacleAvoidanceControllerState(State):
         vel.angular.z = (-base_speed - (-base_speed)) / 1.53
         self.shared_data.auton_publisher.publish(vel)
 
+    def _resume_after_oa(self):
+        """Clean up OA state and return to the state that was interrupted."""
+        # Refresh cooldown from completion time so the rover has time to move
+        # away before OA can re-trigger on the same obstacle.
+        self.shared_data.last_oa_trigger_time = time()
+
+        resume = self.shared_data.oa_resume_state
+        self.shared_data.oa_resume_state = ""
+        self.shared_data.obstacle_avoidance_running = False
+        self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+        self.shared_data.obstacle_avoidance_new_waypoints = []
+        self.phase = "idle"
+        self.phase_start_time = None
+        self.shared_data.obstacle_avoidance_controller = None
+
+        if resume in ("ForwardSpiralState", "BackwardSpiralState"):
+            self.log("OA complete — restarting spiral from current position")
+            return self.state_instance.forward_spiral_state
+
+        if resume == "GoToARState":
+            if self.shared_data.found_ar_flag:
+                return self.state_instance.go_to_ar_state
+            self.log("OA complete — AR tag lost during avoidance, re-spiraling")
+            return self.state_instance.forward_spiral_state
+
+        if resume == "GoToObjectState":
+            if self.shared_data.found_obj_flag:
+                return self.state_instance.go_to_obj_state
+            self.log("OA complete — object lost during avoidance, re-spiraling")
+            return self.state_instance.forward_spiral_state
+
+        # DriveState, NewControllerState, or unknown — rebuild PurePursuit path
+        path_rebuilt = self._rebuild_main_controller_from_current_path()
+        if path_rebuilt:
+            self.log("OA complete — rebuilding PurePursuit path → NewControllerState")
+            return self.state_instance.new_controller_state
+        self.log("OA complete, path rebuild failed — resuming DriveState", logtype="warn")
+        return self.state_instance.drive_state
+
     def _rebuild_main_controller_from_current_path(self):
         # Set new_waypoints in map/GPS-NED frame; _convert_waypoints_to_odom() in _tick
         # will TF2-convert them to odom before PurePursuit is re-initialized.
@@ -166,21 +205,10 @@ class NewObstacleAvoidanceControllerState(State):
                     if controller.user_unreached_pts:
                         controller.start_next_target()
                         return self.state_instance.new_obstacle_avoidance_controller_state
-                    # All waypoints done — check goal proximity then rebuild main path
+                    # All waypoints done — check goal proximity, then resume interrupted state
                     self._publish_stop()
                     result = self._goal_reached_transition()
                     if result is not None:
                         return result
-                    path_rebuilt = self._rebuild_main_controller_from_current_path()
-                    self.shared_data.obstacle_avoidance_running = False
-                    self.shared_data.new_obstacle_avoidance_waypoints_flag = False
-                    self.shared_data.obstacle_avoidance_new_waypoints = []
-                    self.phase = "idle"
-                    self.phase_start_time = None
-                    self.shared_data.obstacle_avoidance_controller = None
-                    if path_rebuilt:
-                        self.log("all OA waypoints done, goal outside map — rebuilding PurePursuit path → NewControllerState")
-                        return self.state_instance.new_controller_state
-                    self.log("all OA waypoints done, path rebuild failed — resuming DriveState", logtype="warn")
-                    return self.state_instance.drive_state
+                    return self._resume_after_oa()
                 return self.state_instance.new_obstacle_avoidance_controller_state

@@ -118,10 +118,9 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
 
         # Route target ids to the correct search channel.
         # object_id > 3 means ArUco target, else object target.
-        print("Trying to route...")
-        print("Auton input object_id:", auton_input.object_id)
+        shared_data.logger.info("Auton input object_id:", auton_input.object_id)
         shared_data.should_look_for_ar = auton_input.object_id > 3
-        print(f"Should_look_for_ar: {shared_data.should_look_for_ar}")
+        shared_data.logger.info(f"Should_look_for_ar: {shared_data.should_look_for_ar}")
         shared_data.should_look_for_obj = auton_input.object_id > 0 and not shared_data.should_look_for_ar
 
         if shared_data.should_look_for_ar:
@@ -166,23 +165,23 @@ def found_ar_tag(msg: Float64MultiArray, shared_data: SharedData) -> None:
         shared_data.ar_size, shared_data.ar_id] = msg.data
         shared_data.found_ar_flag = True
         shared_data.latest_ar_found = time()
-        print(f"Found primary AR tag: id={shared_data.ar_id}, cX={shared_data.ar_cX}, cY={shared_data.ar_cY}, size={shared_data.ar_size}")
+        shared_data.logger.info(f"Found primary AR tag: id={shared_data.ar_id}, cX={shared_data.ar_cX}, cY={shared_data.ar_cY}, size={shared_data.ar_size}")
 
     # Check if the detected AR tag matches the secondary target ID
     if hasattr(shared_data, 'target_id2') and int(shared_data.target_id2) == int(msg.data[3]):
         [shared_data.ar_cX2, shared_data.ar_cY2,
         shared_data.ar_size2, shared_data.ar_id2] = msg.data
-        print(f"Found secondary AR tag: id2={shared_data.ar_id2}, cX2={shared_data.ar_cX2}, cY2={shared_data.ar_cY2}, size2={shared_data.ar_size2}")
+        shared_data.logger.info(f"Found secondary AR tag: id2={shared_data.ar_id2}, cX2={shared_data.ar_cX2}, cY2={shared_data.ar_cY2}, size2={shared_data.ar_size2}")
 
     # If the found AR tag does not match the primary target, release mutex and exit
     if int(shared_data.ar_id) != int(shared_data.target_id):
-        print("AR tag ID does not match target. Exiting function.")
+        shared_data.logger.info("AR tag ID does not match target. Exiting function.")
         shared_data.mutex.release()
         return
 
     # Set flag indicating AR tag was found
     shared_data.found_ar_flag = True
-    print("AR tag found flag set to True.")
+    shared_data.logger.info("AR tag found flag set to True.")
 
     # Release the mutex after updating shared_data
     shared_data.mutex.release()
@@ -228,13 +227,13 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints: Fl
 def found_object(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
-    print("Seeing object id:", msg.data[-1], "Looking for:", shared_data.target_obj_id)
+    shared_data.logger.info("Seeing object id:", msg.data[-1], "Looking for:", shared_data.target_obj_id)
     # Check if the detected object matches the target object ID
     if shared_data.target_obj_id == msg.data[-1]:
         [shared_data.obj_cX, shared_data.obj_cY,
         shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
         shared_data.counter += 1
-        print("Found object we were looking for with id:", msg.data[-1])
+        shared_data.logger.info("Found object we were looking for with id:", msg.data[-1])
         # If the object has been detected at least twice, set the found flag
         if shared_data.counter >= 2:
             shared_data.found_obj_flag = True

@@ -32,11 +32,11 @@ class ForwardSpiralState(State):
 
             # print(f"found flag: {self.shared_data.found_ar_flag}, should look: {self.shared_data.should_look_for_ar}")
             if self.shared_data.should_look_for_ar:
-                print("Searching for target ID:", self.shared_data.target_id)
+                self.log("Searching for target ID:", self.shared_data.target_id)
             elif self.shared_data.should_look_for_obj:
-                print("Searching for object ID:", self.shared_data.target_obj_id)
+                self.log("Searching for object ID:", self.shared_data.target_obj_id)
             else:
-                print("Not searching for any object.")
+                self.log("Not searching for any object.")
 
             if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
                 self.log("AR tag detected during spiral — → GoToARState")
