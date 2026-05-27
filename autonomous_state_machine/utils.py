@@ -10,24 +10,6 @@ from nav_msgs.msg import Odometry
 from robot_localization.srv import FromLL
 from custom_msg_types.msg import AutonInput
 
-def on_new_gps_msg(msg: NavSatFix, shared_data: SharedData) -> None:
-    with shared_data.mutex:
-        if shared_data.gps_converter is None:
-            shared_data.gps_converter = GPS_2_NED(msg.latitude, msg.longitude)
-        shared_data.cur_position = shared_data.gps_converter.gps_to_xy(msg.latitude, msg.longitude)
-        shared_data.position_history.append(shared_data.cur_position)
-        shared_data.gps_ready = True
-        with open("debug.txt", 'a') as f:
-            f.write(f"{shared_data.cur_position[0]}, {shared_data.cur_position[1]}, {shared_data.cur_heading}\n")
-
-def on_new_heading_msg(msg: Imu, shared_data: SharedData) -> None:
-    with shared_data.mutex:
-        q = msg.orientation
-        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                         1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-        shared_data.cur_heading_raw = yaw
-        shared_data.heading_ready = True
-
 def on_new_velocity_msg(msg: TwistStamped, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
@@ -102,12 +84,10 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
     """
     shared_data.logger.info(f"Received Autonomous Input: {auton_input}")
     with shared_data.mutex:
-        shared_data.logger.info(f"gps_converter: {shared_data.gps_converter}")
         shared_data.logger.info(f"cur_position: {shared_data.cur_position}")
         shared_data.logger.info(f"cur_heading: {shared_data.cur_heading}")
 
-        if shared_data.gps_converter is None or \
-            shared_data.cur_position is None or \
+        if shared_data.cur_position is None or \
             shared_data.cur_heading is None:
             shared_data.logger.error("Required shared_data fields are not initialized. Exiting function.")
             return
@@ -283,6 +263,9 @@ def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
         shared_data.local_odom_position = (ox, oy)
         shared_data._prev_local_odom_pos = (ox, oy)
         shared_data.odom_ready = True
+        shared_data.cur_position = (ox, oy)
+        shared_data.position_history.append(shared_data.cur_position)
+        shared_data.gps_ready = True
         
         # Get odometry orientation data
         orientation_q = msg.pose.pose.orientation
