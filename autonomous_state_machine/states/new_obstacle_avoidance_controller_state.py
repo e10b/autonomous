@@ -112,24 +112,32 @@ class NewObstacleAvoidanceControllerState(State):
             if self.shared_data.new_obstacle_avoidance_waypoints_flag:
                 self._load_shared_waypoints()
 
+            spiral_states = (self.state_instance.forward_spiral_state, self.state_instance.backward_spiral_state)
+
             if not self.path_waypoints:
                 self._publish_stop()
-                # clear flags to ensure DriveState resumes
                 self.shared_data.obstacle_avoidance_running = False
                 self.shared_data.new_obstacle_avoidance_waypoints_flag = False
                 self.shared_data.obstacle_avoidance_new_waypoints = []
                 self.phase = "idle"
                 self.phase_start_time = None
+                post_oa = self.shared_data.post_oa_state
+                if post_oa in spiral_states:
+                    self.shared_data.spiral_oa_resume = True
+                    return post_oa
                 return self.state_instance.drive_state
-            
+
             if self.current_waypoint_index >= len(self.path_waypoints):
                 self._publish_stop()
-                # clear flags to ensure DriveState resumes
                 self.shared_data.obstacle_avoidance_running = False
                 self.shared_data.new_obstacle_avoidance_waypoints_flag = False
                 self.shared_data.obstacle_avoidance_new_waypoints = []
                 self.phase = "idle"
                 self.phase_start_time = None
+                post_oa = self.shared_data.post_oa_state
+                if post_oa in spiral_states:
+                    self.shared_data.spiral_oa_resume = True
+                    return post_oa
                 return self.state_instance.drive_state
 
             # Phase 1: move backwards briefly to clear the obstacle.
@@ -171,13 +179,22 @@ class NewObstacleAvoidanceControllerState(State):
                     result = self._goal_reached_transition()
                     if result is not None:
                         return result
-                    path_rebuilt = self._rebuild_main_controller_from_current_path()
                     self.shared_data.obstacle_avoidance_running = False
                     self.shared_data.new_obstacle_avoidance_waypoints_flag = False
                     self.shared_data.obstacle_avoidance_new_waypoints = []
                     self.phase = "idle"
                     self.phase_start_time = None
                     self.shared_data.obstacle_avoidance_controller = None
+                    post_oa = self.shared_data.post_oa_state
+                    if post_oa in spiral_states:
+                        resume_idx = self.shared_data.spiral_resume_index
+                        remaining = self.shared_data.spiral_waypoints[resume_idx:]
+                        self.shared_data.spiral_waypoints = remaining
+                        self.shared_data.spiral_oa_resume = True
+                        self.log(f"all OA waypoints done — resuming {post_oa.__class__.__name__} "
+                                 f"from waypoint {resume_idx} ({len(remaining)} remaining)")
+                        return post_oa
+                    path_rebuilt = self._rebuild_main_controller_from_current_path()
                     if path_rebuilt:
                         self.log("all OA waypoints done, goal outside map — rebuilding PurePursuit path → NewControllerState")
                         return self.state_instance.new_controller_state

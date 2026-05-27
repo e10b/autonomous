@@ -90,6 +90,10 @@ class SharedData():
     obstacle_avoidance_new_waypoints = []
     # obstacle avoidance has run and can avoid another obstacle
     obstacle_avoidance_running = False
+    spiral_waypoints     = []   # full remaining spiral waypoint list (updated as spiral progresses)
+    spiral_resume_index  = 0    # index in spiral_waypoints of the OA target; set by _on_pointcloud
+    spiral_oa_resume     = False # True when returning from OA — on_enter uses remaining waypoints instead of regenerating
+    post_oa_state        = None # State to return to after OA completes; None = use default rebuild logic
 
     ar_cX = 0      # central x position of detected ar tag
     ar_cY = 0      # central y position of detected ar tag

@@ -223,14 +223,42 @@ class AutonomousStateMachine(Node):
             if goal is None:
                 return
 
-            # If the goal itself is inside an obstacle or inflation zone, redirect to the nearest free point
-            adjusted_goal = self.shared_data.global_map.nearest_free_point(goal[0], goal[1], config.OA_ROBOT_RADIUS_M)
-            if adjusted_goal[0] != goal[0] or adjusted_goal[1] != goal[1]:
-                self.get_logger().warn(
-                    f"[OA] Goal ({goal[0]:.2f}, {goal[1]:.2f}) is inside an obstacle/inflation zone — "
-                    f"redirecting to nearest free point ({adjusted_goal[0]:.2f}, {adjusted_goal[1]:.2f})"
-                )
-                goal = adjusted_goal
+            spiral_states = (self.state_instance.forward_spiral_state, self.state_instance.backward_spiral_state)
+            if self.shared_data.post_oa_state in spiral_states:
+                # Spiral mode: Theta* to the first unblocked spiral waypoint, not the GPS goal
+                spiral_pts = self.shared_data.spiral_waypoints
+                oa_goal = None
+                gm = self.shared_data.global_map
+                if spiral_pts and gm.global_origin_x is not None:
+                    binary_grid = (gm.grid > gm.obstacle_threshold).astype(np.uint8)
+                    radius_cells = max(1, int(config.OA_ROBOT_RADIUS_M / gm.cell_size_m))
+                    inflated = gm._minkowski_sum_grid(binary_grid, radius_cells)
+                    for i, (wx, wy) in enumerate(spiral_pts):
+                        sc = int((wx - gm.global_origin_x) / gm.cell_size_m)
+                        sr = int((wy - gm.global_origin_y) / gm.cell_size_m)
+                        if 0 <= sc < gm.grid_size and 0 <= sr < gm.grid_size and inflated[sc, sr] == 0:
+                            oa_goal = (wx, wy)
+                            self.shared_data.spiral_resume_index = i
+                            break
+                if oa_goal is None and spiral_pts:
+                    # All blocked — navigate to nearest free point; no waypoints left to resume
+                    oa_goal = gm.nearest_free_point(spiral_pts[-1][0], spiral_pts[-1][1], config.OA_ROBOT_RADIUS_M)
+                    self.shared_data.spiral_resume_index = len(spiral_pts)
+                    self.get_logger().warn(
+                        f"[OA] All spiral waypoints blocked — redirecting to nearest free point "
+                        f"({oa_goal[0]:.2f}, {oa_goal[1]:.2f})"
+                    )
+                if oa_goal is not None:
+                    goal = oa_goal
+            else:
+                # GPS navigation mode: redirect if goal is inside obstacle/inflation zone
+                adjusted_goal = self.shared_data.global_map.nearest_free_point(goal[0], goal[1], config.OA_ROBOT_RADIUS_M)
+                if adjusted_goal[0] != goal[0] or adjusted_goal[1] != goal[1]:
+                    self.get_logger().warn(
+                        f"[OA] Goal ({goal[0]:.2f}, {goal[1]:.2f}) is inside an obstacle/inflation zone — "
+                        f"redirecting to nearest free point ({adjusted_goal[0]:.2f}, {adjusted_goal[1]:.2f})"
+                    )
+                    goal = adjusted_goal
 
             path = self.shared_data.global_map.get_path(pos[0], pos[1], goal[0], goal[1], robot_radius_m=config.OA_ROBOT_RADIUS_M)
             if not path:
