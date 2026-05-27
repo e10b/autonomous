@@ -147,8 +147,14 @@ class NewObstacleAvoidanceControllerState(State):
 
         spiral_states = (self.state_instance.forward_spiral_state, self.state_instance.backward_spiral_state)
         if self.shared_data.post_oa_state in spiral_states:
+            resume_idx = self.shared_data.spiral_resume_index
+            remaining = self.shared_data.spiral_waypoints[resume_idx:]
+            self.shared_data.spiral_waypoints = remaining
             self.shared_data.spiral_oa_resume = True
-            self.log("OA goal reached while spiraling — resuming spiral instead of validating")
+            self.log(
+                f"OA goal reached while spiraling — resuming spiral instead of validating "
+                f"from waypoint {resume_idx} ({len(remaining)} remaining)"
+            )
             return self.shared_data.post_oa_state
 
         return self.state_instance.validating_state
