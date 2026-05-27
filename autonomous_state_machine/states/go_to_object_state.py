@@ -14,14 +14,13 @@ class GoToObjectState(State):
 
     def on_enter(self):
         self.shared_data.counter = 0
-        print("Entering goToObjectState...")
+        self.log("ENTER — visual servo to detected object (direct velocity control)")
         with self.shared_data.mutex:
             self.shared_data.start_time = time()
 
     def step(self) -> State:
         with self.shared_data.mutex:
             off_center = self.shared_data.obj_cX - 0.5
-            print(off_center, self.shared_data.obj_width, self.shared_data.obj_height)
             left = clamp(OBJ_DRIVE_SPEED + off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             right = clamp(OBJ_DRIVE_SPEED - off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             vel = Twist()

@@ -12,7 +12,7 @@ class GoToARState(State):
         self.state_instance = state_instance
     
     def on_enter(self):
-        print("Entering goToARState...")
+        self.log("ENTER — visual servo to AR tag (direct velocity control)")
 
         with self.shared_data.mutex:
             self.shared_data.start_time = time()
@@ -21,7 +21,6 @@ class GoToARState(State):
         with self.shared_data.mutex:
 
             off_center = self.shared_data.ar_cX - 0.5
-            print(off_center, self.shared_data.ar_size)
             left = clamp(AR_DRIVE_SPEED + off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             right = clamp(AR_DRIVE_SPEED - off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             vel = Twist()

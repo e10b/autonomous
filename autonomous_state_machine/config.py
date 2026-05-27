@@ -1,16 +1,17 @@
 # Configuration Parameters for Autonomous State Machine
 
 # Global Map Parameters
-PERSISTENT_GRID_SIZE = 60 # 60 is good
+PERSISTENT_GRID_SIZE = 30 # 30m minimum for sim rollover testing
 OVERLAP_SIZE = 5.0
 SHIFT_SIZE = PERSISTENT_GRID_SIZE // 2
 GRID_CELL_SIZE = 0.10
 
 # Debugging
 PRINT_ASCII_MAP = True
+PUBLISH_COSTMAP = True  # publish global map as nav_msgs/OccupancyGrid for Foxglove
 
 # Simulation Flag: Turns off degradation for sim, turns it on for real
-SIMULATION = False
+SIMULATION = True
 
 # Navigation controller: "pure_pursuit" or "align"
 CONTROLLER_TYPE = "align"

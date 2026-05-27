@@ -11,7 +11,7 @@ class CircleState(State):
         self.state_instance = state_instance
     
     def on_enter(self):
-        print("Entering CircleState...")
+        self.log("ENTER — circling AR tag pole (spin 90° then arc 270°)")
 
         with self.shared_data.mutex:
             self.shared_data.start_time = time()
@@ -25,10 +25,6 @@ class CircleState(State):
 
             # Spin 90 degrees CW to be perpendicular to the AR Tag pole
             if not self.done_perp and abs(self.shared_data.cur_heading - (self.shared_data.start_heading - math.pi/2)) > self.shared_data.SPIN_TOLERANCE:
-                print(f"Spinning 90 deg for {round(time()-self.shared_data.start_time, 3)} seconds { abs(self.shared_data.cur_heading - (self.shared_data.start_heading - math.pi/2))}")
-                """if time() - shared_data.start_time < shared_data.SPIN_TIMEOUT/4:
-                print(
-                    f"Spinning 90 deg for {round(time()-shared_data.start_time, 3)} seconds")"""
                 left = clamp(self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
                 right = clamp(-self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
                 vel = Twist()
@@ -38,7 +34,6 @@ class CircleState(State):
                 return self.state_instance.circle_state
             else:
                 self.done_perp = True
-            print(f"Spinning 270 deg for {round(time()-self.shared_data.start_time, 3)} seconds")
 
             left = clamp(0.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             right = clamp(2, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)

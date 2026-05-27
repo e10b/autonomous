@@ -15,6 +15,8 @@ class State():
         state_name = self.__class__.__name__
         if logtype == "info":
             self.shared_data.logger.info(f"[{state_name}] {msg}")
+        elif logtype == "warn":
+            self.shared_data.logger.warn(f"[{state_name}] {msg}")
         elif logtype == "error":
             self.shared_data.logger.error(f"[{state_name}] {msg}")
 

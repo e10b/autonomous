@@ -11,7 +11,7 @@ import tf2_geometry_msgs
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import TwistStamped, PointStamped, Twist
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, OccupancyGrid
 from std_msgs.msg import Float64MultiArray, String
 from sensor_msgs.msg import NavSatFix, PointCloud2, Imu
 from time import time
@@ -73,10 +73,10 @@ class AutonomousStateMachine(Node):
         self.timer = self.create_timer(1.0 / RATE, self._tick)
 
         # LL client for goal transofrm
-        self.shared_data.llclient = self.create_client(FromLL, '/fromLL')
-        while not self.shared_data.llclient.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('Waiting for FromLL service...')
-        self.get_logger().info('FromLL service is available.')
+        # self.shared_data.llclient = self.create_client(FromLL, '/fromLL')
+        # while not self.shared_data.llclient.wait_for_service(timeout_sec=1.0):
+        #     self.get_logger().info('Waiting for FromLL service...')
+        # self.get_logger().info('FromLL service is available.')
 
     @staticmethod
     def _largest_connected_obstacle_size(binary_grid: np.ndarray) -> int:
@@ -145,13 +145,12 @@ class AutonomousStateMachine(Node):
         pt.point.x = float(x_map)
         pt.point.y = float(y_map)
         try:
-            print("TRANSFORM ATTEMPT: Transforming goal from map to odom frame...")
             t = self._tf_buffer.lookup_transform('odom', 'map', rclpy.time.Time())
             out = tf2_geometry_msgs.do_transform_point(pt, t)
-            print("TRANSFORM SUCCESS: Goal in odom frame is ({:.2f}, {:.2f})".format(out.point.x, out.point.y))
+            self.get_logger().info(f"[TF] map→odom goal: ({out.point.x:.2f}, {out.point.y:.2f})")
             return (out.point.x, out.point.y)
         except Exception:
-            print("TRANSFORM ERROR:Failed to transform goal to odom frame")
+            self.get_logger().warn("[TF] map→odom transform failed — using map coords as odom fallback")
             return (x_map, y_map)  # fallback: in sim map≡odom so values are identical
 
     def _convert_waypoints_to_odom(self):
@@ -211,7 +210,6 @@ class AutonomousStateMachine(Node):
 
         largest_obstacle = self._largest_connected_obstacle_size(corridor_grid)
         if largest_obstacle < config.MIN_OBSTACLE_SIZE:
-            print(f"[OA] Ignoring small obstacle blob ({largest_obstacle} cells < {config.MIN_OBSTACLE_SIZE})")
             return
 
         with self.shared_data.mutex:
@@ -222,18 +220,48 @@ class AutonomousStateMachine(Node):
             goal = self.shared_data.goal_odom
             if goal is None:
                 return
+
+            # If the goal itself is inside an obstacle or inflation zone, redirect to the nearest free point
+            adjusted_goal = self.shared_data.global_map.nearest_free_point(goal[0], goal[1], config.OA_ROBOT_RADIUS_M)
+            if adjusted_goal[0] != goal[0] or adjusted_goal[1] != goal[1]:
+                self.get_logger().warn(
+                    f"[OA] Goal ({goal[0]:.2f}, {goal[1]:.2f}) is inside an obstacle/inflation zone — "
+                    f"redirecting to nearest free point ({adjusted_goal[0]:.2f}, {adjusted_goal[1]:.2f})"
+                )
+                goal = adjusted_goal
+
             path = self.shared_data.global_map.get_path(pos[0], pos[1], goal[0], goal[1], robot_radius_m=config.OA_ROBOT_RADIUS_M)
             if not path:
-                print("[OA] Corridor blocked but get_path returned empty — map not ready?")
+                self.get_logger().warn("[OA] Corridor blocked but Theta* returned no path — map may not be ready yet")
                 return
             if self.shared_data.obstacle_avoidance_running:
-                print("[OA] Reattempt: replacing pending OA waypoints")
+                self.get_logger().info("[OA] Reattempt — replacing active OA waypoints with fresher path")
                 self.shared_data.obstacle_avoidance_new_waypoints = []
                 self.shared_data.new_obstacle_avoidance_waypoints_flag = False
             self.shared_data.obstacle_avoidance_new_waypoints = path
             self.shared_data.new_obstacle_avoidance_waypoints_flag = True
             self.shared_data.last_oa_trigger_time = time()
-            print(f"[OA] Triggered from pointcloud, path={len(path)} waypoints")
+            self.get_logger().info(f"[OA] Obstacle detected — AlignAndMove path queued ({len(path)} waypoints)")
+
+    def _publish_occupancy_grid(self):
+        gm = self.shared_data.global_map
+        if gm.global_origin_x is None:
+            return
+        msg = OccupancyGrid()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = 'odom'
+        msg.info.resolution = gm.cell_size_m
+        msg.info.width = gm.grid_size
+        msg.info.height = gm.grid_size
+        msg.info.origin.position.x = gm.global_origin_x
+        msg.info.origin.position.y = gm.global_origin_y
+        msg.info.origin.position.z = 0.0
+        msg.info.origin.orientation.w = 1.0
+        # grid[c,r] (c=x, r=y) → row-major OccupancyGrid [r*width+c] via transpose+flatten
+        flat = gm.grid.T.flatten().astype(np.int16)
+        flat[flat == 50] = -1  # remap unknown (50) to OccupancyGrid unknown (-1)
+        msg.data = flat.astype(np.int8).tolist()
+        self._occupancy_grid_pub.publish(msg)
 
     def _tick(self):
         old_state = self.cur_state.__class__.__name__
@@ -255,10 +283,8 @@ class AutonomousStateMachine(Node):
             else:
                 self._goal_skip_counter = 0
                 d = np.linalg.norm(np.array(odom_pos) - np.array(goal))
-                print(f"[Current Goal] {goal}, Current Position: {odom_pos}")
-                print(f"[GoalCheck] distance to goal: {d:.2f}m")
                 if d < 2.0:
-                    print(f"[GoalCheck] GOAL REACHED ({d:.2f}m) — entering validating_state")
+                    self.get_logger().info(f"[DriveState] goal reached ({d:.2f}m) — entering ValidatingState")
                     # Mark PP controller reached so ValidatingState sees did_reach_goal()=True.
                     # Without this, a freshly-built controller has reached_goal=False and loops:
                     # _tick→validating→new_controller→drive→_tick→...
@@ -281,14 +307,17 @@ class AutonomousStateMachine(Node):
         if time() - self.shared_data.latest_ar_found > 2:
             self.shared_data.found_ar_flag = False
 
-        if config.PRINT_ASCII_MAP:
+        if config.PRINT_ASCII_MAP or config.PUBLISH_COSTMAP:
             self._map_print_counter += 1
             if self._map_print_counter >= RATE:
                 self._map_print_counter = 0
                 pos = self.shared_data.local_odom_position
                 if pos is not None:
-                    path = self.shared_data.obstacle_avoidance_new_waypoints or None
-                    self.shared_data.global_map.print_ascii_map(pos[0], pos[1], path_waypoints=path, goal=self.shared_data.goal_odom)
+                    if config.PRINT_ASCII_MAP:
+                        path = self.shared_data.obstacle_avoidance_new_waypoints or None
+                        self.shared_data.global_map.print_ascii_map(pos[0], pos[1], path_waypoints=path, goal=self.shared_data.goal_odom)
+                    if config.PUBLISH_COSTMAP:
+                        self._publish_occupancy_grid()
                 else:
                     try:
                         with open("/tmp/rover_map.txt", "w") as f:
@@ -298,7 +327,7 @@ class AutonomousStateMachine(Node):
         
         new_state = self.cur_state.__class__.__name__
         if old_state != new_state:
-            print(f"[STATE TRANSITION] {old_state} → {new_state}")
+            self.get_logger().info(f"[Transition] {old_state} → {new_state}")
 
     def setup_subscribers(self):
         qos_profile = QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT, durability=QoSDurabilityPolicy.VOLATILE, depth=10)
@@ -323,6 +352,8 @@ class AutonomousStateMachine(Node):
         self.shared_data.cur_state_publisher = self.create_publisher(String, self.shared_data.CUR_STATE_TOPIC_NAME, 10)
         self.shared_data.auton_path_publisher = self.create_publisher(Float64MultiArray, self.shared_data.AUTON_PATH_NAME, 10)
         self.shared_data.led_publisher = self.create_publisher(Float64MultiArray, self.shared_data.LED_TOPIC_NAME, 10)
+        if config.PUBLISH_COSTMAP:
+            self._occupancy_grid_pub = self.create_publisher(OccupancyGrid, '/autonomous/global_map', 1)
         self.get_logger().info("[StartState] Publisher initialization complete.")
 
     def build_states(self):

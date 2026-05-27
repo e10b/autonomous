@@ -270,6 +270,40 @@ class GlobalMapManager:
         
         return intersect_x, intersect_y
 
+    def nearest_free_point(self, x, y, robot_radius_m=1.0):
+        """Return the nearest odom-frame point to (x, y) that is outside every obstacle and
+        inflation zone. Returns (x, y) unchanged if the point is already free."""
+        if self.global_origin_x is None:
+            return (x, y)
+
+        binary_grid = (self.grid > self.obstacle_threshold).astype(np.uint8)
+        radius_cells = max(1, int(robot_radius_m / self.cell_size_m))
+        inflated = self._minkowski_sum_grid(binary_grid, radius_cells)
+
+        sc = max(0, min(self.grid_size - 1, int((x - self.global_origin_x) / self.cell_size_m)))
+        sr = max(0, min(self.grid_size - 1, int((y - self.global_origin_y) / self.cell_size_m)))
+
+        if inflated[sc, sr] == 0:
+            return (x, y)
+
+        from collections import deque
+        queue = deque([(sc, sr)])
+        visited = {(sc, sr)}
+        while queue:
+            c, r = queue.popleft()
+            for dc in (-1, 0, 1):
+                for dr in (-1, 0, 1):
+                    if dc == 0 and dr == 0:
+                        continue
+                    nc, nr = c + dc, r + dr
+                    if 0 <= nc < self.grid_size and 0 <= nr < self.grid_size and (nc, nr) not in visited:
+                        visited.add((nc, nr))
+                        if inflated[nc, nr] == 0:
+                            return (self.global_origin_x + nc * self.cell_size_m,
+                                    self.global_origin_y + nr * self.cell_size_m)
+                        queue.append((nc, nr))
+        return (x, y)
+
     def get_path(self, robot_x, robot_y, target_a, target_b, target_type='NED', gps_converter=None, robot_radius_m=1.0):
         """
         Calculates a path from the robot to a target coordinate using Theta*.
@@ -473,7 +507,7 @@ class GlobalMapManager:
         inflated_window = self._minkowski_sum_grid(binary_window, radius_cells)
 
         # Build path cell dict {(c, r): char} using Bresenham's line between waypoints.
-        # Screen layout: c increases rightward (= north), r increases downward (= east).
+        # Screen layout: c increases rightward (= east/+x), r increases upward (= north/+y).
         # Character reflects the segment's angle on screen.
         path_cells = {}
         if path_waypoints and len(path_waypoints) >= 2:
@@ -513,7 +547,7 @@ class GlobalMapManager:
         out_str = f"--- Center Window ({window}x{window} cells) ---\n"
         out_str += "Legend: [R]=Rover | [G]=Goal | [##]=Obstacle | [++]=Inflated | [..]=Free | [  ]=Unknown | [_/\\|]=Path\n"
 
-        for r in range(min_r, max_r):
+        for r in range(max_r - 1, min_r - 1, -1):
             row_str = ""
             for c in range(min_c, max_c):
                 wc = c - pad_min_c

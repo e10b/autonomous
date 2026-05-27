@@ -11,7 +11,7 @@ class ForwardSpiralState(State):
         self.state_instance = state_instance
 
     def on_enter(self):
-        print("Entering ForwardSpiralState...")
+        self.log("ENTER — PurePursuit outward spiral search")
         with self.shared_data.mutex:
             self.shared_data.start_time = time()
             if self.shared_data.should_look_for_ar:
@@ -30,14 +30,12 @@ class ForwardSpiralState(State):
         with self.shared_data.mutex:
             self.shared_data.controller.step(self.shared_data)
 
-            print(f"found flag: {self.shared_data.found_ar_flag}, should look: {self.shared_data.should_look_for_ar}")
-
             if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
-                print("Going to AR state!")
+                self.log("AR tag detected during spiral — → GoToARState")
                 return self.state_instance.go_to_ar_state
 
             if self.shared_data.found_obj_flag and self.shared_data.should_look_for_obj:
-                print("Going to object state!")
+                self.log("object detected during spiral — → GoToObjectState")
                 return self.state_instance.go_to_obj_state
 
             if self.shared_data.controller.did_reach_goal():

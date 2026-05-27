@@ -8,7 +8,7 @@ class HeartbeatState(State):
         self.state_instance = state_instance
 
     def on_enter(self):
-        print("Entering Heartbeat State")
+        self.log("ENTER — navigating to last heartbeat position")
         self.shared_data.mutex.acquire()
         self.shared_data.start_time = time()
         self.shared_data.new_waypoints = [self.shared_data.last_heartbeat_pos[-1]]

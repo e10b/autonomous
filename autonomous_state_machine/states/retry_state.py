@@ -7,7 +7,7 @@ class RetryState(State):
         self.state_instance = state_instance
     
     def on_enter(self):
-        print("Entering retryState...")
+        self.log("ENTER — spiral search exhausted, navigating home")
 
     def step(self) -> State:
         with self.shared_data.mutex:

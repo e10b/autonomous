@@ -56,6 +56,8 @@ class NewObstacleAvoidanceControllerState(State):
             self.phase_start_time = None
             self._load_shared_waypoints()
             self.shared_data.obstacle_avoidance_running = True
+            n = len(self.path_waypoints)
+            self.log(f"ENTER — AlignAndMove loaded, {n} waypoints, reversing {self.reverse_duration}s then following path")
         finally:
             self.shared_data.mutex.release()
 
@@ -91,9 +93,10 @@ class NewObstacleAvoidanceControllerState(State):
         _goal    = self.shared_data.goal_odom
         if _cur_pos is None or _goal is None:
             return None
-        if float(np.linalg.norm(np.array(_cur_pos) - np.array(_goal))) >= 2.0:
+        dist = float(np.linalg.norm(np.array(_cur_pos) - np.array(_goal)))
+        if dist >= 2.0:
             return None
-        print(f"[OA] Rover at goal ({np.linalg.norm(np.array(_cur_pos)-np.array(_goal)):.2f}m) — entering validating_state")
+        self.log(f"goal reached during AlignAndMove ({dist:.2f}m) — → ValidatingState")
         if self.shared_data.controller is not None:
             self.shared_data.controller.reached_goal = True
         self.shared_data.obstacle_avoidance_running = False
@@ -135,16 +138,14 @@ class NewObstacleAvoidanceControllerState(State):
                     self.phase_start_time = time()
 
                 elapsed = time() - self.phase_start_time
-                print(f"[OA] REVERSE PHASE: elapsed={elapsed:.2f}s/{self.reverse_duration}s")
                 if elapsed < self.reverse_duration:
                     self._publish_reverse()
-                    print(f"[OA] Publishing reverse: [-{self.shared_data.AUTON_SPEED:.2f}, -{self.shared_data.AUTON_SPEED:.2f}]")
                     return self.state_instance.new_obstacle_avoidance_controller_state
 
-                print("[OA] Reverse complete, starting waypoint follow")
+                self.log(f"reverse complete ({self.reverse_duration:.1f}s) — following {len(self.path_waypoints)} AlignAndMove waypoints")
                 self.phase = "follow"
                 return self.state_instance.new_obstacle_avoidance_controller_state
-            
+
             # Phase 2: Follow waypoints after reverse using AlignAndMove controller
             if self.phase == "follow":
                 # Every-tick goal check — stop immediately if within 2m even mid-path
@@ -155,25 +156,22 @@ class NewObstacleAvoidanceControllerState(State):
                 # Ensure we have an AlignAndMove controller
                 controller = self.shared_data.obstacle_avoidance_controller
                 if controller is None:
-                    print("[OA] Retry path picked up: rebuilding AlignAndMove controller")
+                    self.log("rebuilding AlignAndMove controller for retry path")
                     controller = AlignAndMove(self.path_waypoints)
                     controller.start_next_target()
                     self.shared_data.obstacle_avoidance_controller = controller
 
                 target_done = controller.step(self.shared_data)
                 if target_done:
-                    # If there are more targets, start the next one
                     if controller.user_unreached_pts:
                         controller.start_next_target()
                         return self.state_instance.new_obstacle_avoidance_controller_state
                     # All waypoints done — check goal proximity then rebuild main path
-                    print("[OA] ALL WAYPOINTS COMPLETED (AlignAndMove)")
                     self._publish_stop()
                     result = self._goal_reached_transition()
                     if result is not None:
                         return result
                     path_rebuilt = self._rebuild_main_controller_from_current_path()
-                    # clear flags and controller so DriveState resumes cleanly
                     self.shared_data.obstacle_avoidance_running = False
                     self.shared_data.new_obstacle_avoidance_waypoints_flag = False
                     self.shared_data.obstacle_avoidance_new_waypoints = []
@@ -181,6 +179,8 @@ class NewObstacleAvoidanceControllerState(State):
                     self.phase_start_time = None
                     self.shared_data.obstacle_avoidance_controller = None
                     if path_rebuilt:
+                        self.log("all OA waypoints done, goal outside map — rebuilding PurePursuit path → NewControllerState")
                         return self.state_instance.new_controller_state
+                    self.log("all OA waypoints done, path rebuild failed — resuming DriveState", logtype="warn")
                     return self.state_instance.drive_state
                 return self.state_instance.new_obstacle_avoidance_controller_state

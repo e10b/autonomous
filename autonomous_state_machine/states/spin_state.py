@@ -10,7 +10,7 @@ class SpinState(State):
         self.state_instance = state_instance
 
     def on_enter(self):
-        print("Entering SpinState...")
+        self.log("ENTER — spinning to search for AR/object")
 
         with self.shared_data.mutex:
             self.shared_data.start_time = time()
@@ -18,7 +18,7 @@ class SpinState(State):
 
     def step(self) -> State:
         with self.shared_data.mutex:
-            print(f"spinning for {round(time()-self.shared_data.start_time)} seconds")
+            self.log(f"spinning {round(time()-self.shared_data.start_time)}s")
             left = clamp(-self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED) if hasattr(self.shared_data, 'MAX_AUTON_SPEED') else -self.shared_data.SPIN_SPEED
             right = clamp(self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED) if hasattr(self.shared_data, 'MAX_AUTON_SPEED') else self.shared_data.SPIN_SPEED
             vel = Twist()

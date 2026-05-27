@@ -21,15 +21,13 @@ class GoalState(State):
         self.counter = 0
 
     def on_enter(self):
-        self.log("Entering goalState...")
-
-        # Protect access to shared data
         with self.shared_data.mutex:
-            # Debug: print which detector triggered (AR marker vs object)
             if self.shared_data.found_ar_flag:
-                self.log(f"{self.shared_data.ar_cX} {self.shared_data.found_ar_flag}")
+                self.log(f"ENTER — goal reached via AR tag (cX={self.shared_data.ar_cX:.3f}), publishing goal_reached")
             elif self.shared_data.found_obj_flag:
-                self.log(f"{self.shared_data.obj_cX} {self.shared_data.found_obj_flag}")
+                self.log(f"ENTER — goal reached via object detection (cX={self.shared_data.obj_cX:.3f}), publishing goal_reached")
+            else:
+                self.log("ENTER — GPS/odom goal reached, publishing goal_reached")
 
             # Notify other components that the goal was reached.
             cur_state_msg = String()
