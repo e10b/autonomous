@@ -2,7 +2,7 @@
 
 """http://wiki.ros.org/mavros for topic ref"""
 
-from autonomous_state_machine.utils import on_new_gps_msg, on_new_heading_msg, on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg
+from autonomous_state_machine.utils import on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg
 import numpy as np
 import rclpy
 import rclpy.time
