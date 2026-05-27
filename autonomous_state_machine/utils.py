@@ -8,6 +8,7 @@ from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
 from robot_localization.srv import FromLL
+from custom_msg_types.msg import AutonInput
 
 def on_new_gps_msg(msg: NavSatFix, shared_data: SharedData) -> None:
     with shared_data.mutex:
@@ -80,12 +81,26 @@ def on_receive_new_gps_waypoint_llclient(gps_waypoint_list: Float64MultiArray, s
 
     future.add_done_callback(_fromll_done)
 
-def on_receive_new_gps_waypoint(gps_waypoint_list: Float64MultiArray, shared_data: SharedData) -> None:
+def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData) -> None:
     """
-    gps_waypoint_list.data is an array of repeating values:
-    [lat, lon, should_look_for_ar, id, speed, should_look_for_obj, lat, lon, lat, lon, ...]
+    Autonomous input is in the following form:
+    float64 latitude
+    float64 longitude
+    float32 speed
+
+    uint8 NONE=0
+    uint8 BOTTLE=1
+    uint8 HAMMER=2
+    uint8 MALLET=3
+    uint8 ARUCO_0=4
+    uint8 ARUCO_1=5
+    uint8 ARUCO_2=6
+    uint8 ARUCO_3=7
+    uint8 ARUCO_4=8
+
+    uint8 object_id
     """
-    shared_data.logger.info(f"Received GPS waypoint list: {gps_waypoint_list}")
+    shared_data.logger.info(f"Received Autonomous Input: {auton_input}")
     shared_data.mutex.acquire()
     try:
         shared_data.logger.info(f"gps_converter: {shared_data.gps_converter}")
@@ -98,29 +113,16 @@ def on_receive_new_gps_waypoint(gps_waypoint_list: Float64MultiArray, shared_dat
             shared_data.logger.error("Required shared_data fields are not initialized. Exiting function.")
             return
 
-        data = gps_waypoint_list.data
+        # data = gps_waypoint_list.data
         shared_data.go_home_position = shared_data.cur_position
-        shared_data.should_look_for_ar = data[2]
-        shared_data.target_id = data[3]
-        # data[4] = speed (unused here), data[5] = should_look_for_obj flag
-        shared_data.should_look_for_obj = 0 if len(data) <= 5 or data[5] == 0 else 1
-        shared_data.target_obj_id = (data[5] - 1) if len(data) > 5 else 0
+        shared_data.target_id = auton_input.object_id
+        shared_data.should_look_for_ar = auton_input.object_id > 3
+        shared_data.should_look_for_obj = auton_input.object_id > 0 and not shared_data.should_look_for_ar
 
-        # Waypoints start at index 6, each waypoint is [lat, lon]
-        HEADER_SIZE = 6
-        shared_data.new_waypoints = [shared_data.cur_position]
-        i = HEADER_SIZE
-        while i + 1 < len(data):
-            lat, lon = data[i], data[i + 1]
-            xy = shared_data.gps_converter.gps_to_xy(lat, lon)
-            shared_data.logger.info(f"Converted waypoint: lat={lat}, lon={lon} -> xy={xy}")
-            shared_data.new_waypoints.append(xy)
-            i += 2
 
-        # Fall back to header lat/lon if no waypoints in the tail
-        if len(shared_data.new_waypoints) == 1:
-            xy = shared_data.gps_converter.gps_to_xy(data[0], data[1])
-            shared_data.new_waypoints.append(xy)
+        # # Waypoints start at index 6, each waypoint is [lat, lon]
+        # HEADER_SIZE = 6
+        shared_data.new_waypoints = [shared_data.cur_position, shared_data.gps_converter.gps_to_xy(auton_input.latitude, auton_input.longitude)]
 
         shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
         shared_data.goal_map_xy = tuple(shared_data.new_waypoints[-1])
