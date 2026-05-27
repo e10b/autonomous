@@ -101,8 +101,7 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
     uint8 object_id
     """
     shared_data.logger.info(f"Received Autonomous Input: {auton_input}")
-    shared_data.mutex.acquire()
-    try:
+    with shared_data.mutex:
         shared_data.logger.info(f"gps_converter: {shared_data.gps_converter}")
         shared_data.logger.info(f"cur_position: {shared_data.cur_position}")
         shared_data.logger.info(f"cur_heading: {shared_data.cur_heading}")
@@ -113,11 +112,9 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
             shared_data.logger.error("Required shared_data fields are not initialized. Exiting function.")
             return
 
-        # data = gps_waypoint_list.data
         shared_data.go_home_position = shared_data.cur_position
+        start_pos = shared_data.cur_position  # capture before async gap
 
-        # Route target ids to the correct search channel.
-        # object_id > 3 means ArUco target, else object target.
         shared_data.logger.info(f"Auton input object_id: {auton_input.object_id}")
         shared_data.should_look_for_ar = auton_input.object_id > 3
         shared_data.logger.info(f"Should_look_for_ar: {shared_data.should_look_for_ar}")
@@ -139,19 +136,35 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
 
         shared_data.counter = 0
 
+    # async but its super fast so its ok
+    lat, lon = auton_input.latitude, auton_input.longitude
+    req = FromLL.Request()
+    req.ll_point.latitude = float(lat)
+    req.ll_point.longitude = float(lon)
+    req.ll_point.altitude = 0.0
 
-        # # Waypoints start at index 6, each waypoint is [lat, lon]
-        # HEADER_SIZE = 6
-        shared_data.new_waypoints = [shared_data.cur_position, shared_data.gps_converter.gps_to_xy(auton_input.latitude, auton_input.longitude)]
+    future = shared_data.llclient.call_async(req)
 
-        shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
-        shared_data.goal_map_xy = tuple(shared_data.new_waypoints[-1])
-        shared_data.goal_dirty  = True
-        shared_data.new_waypoints_flag = True
-        shared_data.obstacle_avoidance_running = False
-        shared_data.new_obstacle_avoidance_waypoints_flag = False
-    finally:
-        shared_data.mutex.release()
+    def _fromll_done(fut):
+        try:
+            resp = fut.result()
+            if resp is None:
+                shared_data.logger.error("FromLL service call failed")
+                return
+            map_pt = resp.map_point
+            goal_pos = (map_pt.x, map_pt.y)
+            with shared_data.mutex:
+                shared_data.new_waypoints = [start_pos, goal_pos]
+                shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
+                shared_data.goal_map_xy = goal_pos
+                shared_data.goal_dirty  = True
+                shared_data.new_waypoints_flag = True
+                shared_data.obstacle_avoidance_running = False
+                shared_data.new_obstacle_avoidance_waypoints_flag = False
+        except Exception as e:
+            shared_data.logger.exception("FromLL call failed: %s", e)
+
+    future.add_done_callback(_fromll_done)
 
 def found_ar_tag(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
