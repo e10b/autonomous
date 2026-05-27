@@ -6,6 +6,9 @@ from nav_msgs.msg import Path
 from time import time
 import math
 
+# Match the spiral step size (2 m) — pop a waypoint once the rover is this close.
+_WAYPOINT_PRUNE_DIST = 2.0
+
 class ForwardSpiralState(State):
     def __init__(self, shared_data, state_instance):
         super().__init__()
@@ -63,6 +66,15 @@ class ForwardSpiralState(State):
                 self.shared_data.obstacle_avoidance_running = True
                 return self.state_instance.new_obstacle_avoidance_controller_state
             self.shared_data.controller.step(self.shared_data)
+
+            # Drop waypoints from the front as the rover passes them so that
+            # spiral_waypoints[0] always points to the next unvisited target.
+            # OA then resumes ahead instead of backtracking to the start.
+            pos = self.shared_data.local_odom_position
+            wpts = self.shared_data.spiral_waypoints
+            if pos is not None and len(wpts) > 1:
+                if math.hypot(pos[0] - wpts[0][0], pos[1] - wpts[0][1]) < _WAYPOINT_PRUNE_DIST:
+                    wpts.pop(0)
 
             # print(f"found flag: {self.shared_data.found_ar_flag}, should look: {self.shared_data.should_look_for_ar}")
             if self.shared_data.should_look_for_ar:
