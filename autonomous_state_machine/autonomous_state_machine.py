@@ -2,7 +2,7 @@
 
 """http://wiki.ros.org/mavros for topic ref"""
 
-from autonomous_state_machine.utils import on_new_gps_msg, on_new_heading_msg, on_receive_new_gps_waypoint, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg
+from autonomous_state_machine.utils import on_new_gps_msg, on_new_heading_msg, on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg
 import numpy as np
 import rclpy
 import rclpy.time
@@ -34,6 +34,8 @@ from autonomous_state_machine.states.go_to_ar_state import GoToARState
 from autonomous_state_machine.states.circle_state import CircleState
 from autonomous_state_machine.shared_data import SharedData
 import autonomous_state_machine.config as config
+
+from custom_msg_types.msg import AutonInput
 
 from robot_localization.srv import FromLL
 
@@ -337,7 +339,7 @@ class AutonomousStateMachine(Node):
         
         self.create_subscription(NavSatFix, self.shared_data.GPS_TOPIC_NAME, lambda msg: on_new_gps_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(Imu, self.shared_data.COMPASS_TOPIC_NAME, lambda msg: on_new_heading_msg(msg, self.shared_data), qos_profile)
-        self.create_subscription(Float64MultiArray, self.shared_data.WAYPOINTS_TOPIC_NAME, lambda msg: on_receive_new_gps_waypoint(msg, self.shared_data), 10)
+        self.create_subscription(AutonInput, self.shared_data.AUTON_INPUT_TOPIC_NAME, lambda msg: on_receive_new_auton_input(msg, self.shared_data), 10)
         self.create_subscription(TwistStamped, self.shared_data.VELOCITY_TOPIC_NAME, lambda msg: on_new_velocity_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(Float64MultiArray, self.shared_data.ARTAG_TOPIC_NAME, lambda msg: found_ar_tag(msg, self.shared_data), 10)
         self.create_subscription(Float64MultiArray, self.shared_data.OBJECT_TOPIC_NAME, lambda msg: found_object(msg, self.shared_data), 10)

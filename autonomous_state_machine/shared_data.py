@@ -33,7 +33,7 @@ class SharedData():
     GPS_TOPIC_NAME       = "/autonomous/localization/gps/fix"
     VELOCITY_TOPIC_NAME  = "/autonomous/localization/gps/vel"
     COMPASS_TOPIC_NAME   = "/autonomous/localization/gps/heading"
-    WAYPOINTS_TOPIC_NAME = "/autonomous/input"
+    AUTON_INPUT_TOPIC_NAME = "/autonomous/input"
     ARTAG_TOPIC_NAME     = "/artag_position"
     OBJECT_TOPIC_NAME    = "/object_position"
     OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME = "/obstacle_avoidance/path"
