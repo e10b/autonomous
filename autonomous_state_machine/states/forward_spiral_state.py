@@ -1,7 +1,8 @@
 from autonomous_state_machine.states.state_class import State
 from autonomous_state_machine.spiral_generation import get_spiral
 from autonomous_state_machine.pp import PurePursuit
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, PoseStamped
+from nav_msgs.msg import Path
 from time import time
 import math
 
@@ -35,6 +36,21 @@ class ForwardSpiralState(State):
             self.shared_data.controller = PurePursuit(pts=pts,
                                                 start_ang=self.shared_data.cur_heading,
                                                 end_ang=end_ang)
+            pub = self.shared_data.spiral_path_publisher
+            if pub is not None and len(pts) >= 2:
+                node = self.shared_data.node
+                stamp = node.get_clock().now().to_msg()
+                path_msg = Path()
+                path_msg.header.stamp = stamp
+                path_msg.header.frame_id = 'odom'
+                for (wx, wy) in pts:
+                    ps = PoseStamped()
+                    ps.header = path_msg.header
+                    ps.pose.position.x = float(wx)
+                    ps.pose.position.y = float(wy)
+                    ps.pose.orientation.w = 1.0
+                    path_msg.poses.append(ps)
+                pub.publish(path_msg)
 
     def step(self) -> State:
         with self.shared_data.mutex:

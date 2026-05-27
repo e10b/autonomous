@@ -119,3 +119,6 @@ class SharedData():
     last_oa_trigger_time = 0.0   # timestamp of last obstacle avoidance trigger
     oa_resume_state      = ""    # class name of the state interrupted by OA
     logger               = None
+
+    spiral_path_publisher = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True
+    oa_path_publisher     = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True

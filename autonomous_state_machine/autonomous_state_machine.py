@@ -10,8 +10,8 @@ import tf2_ros
 import tf2_geometry_msgs
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
-from geometry_msgs.msg import TwistStamped, PointStamped, Twist
-from nav_msgs.msg import Odometry, OccupancyGrid
+from geometry_msgs.msg import TwistStamped, PointStamped, Twist, PoseStamped
+from nav_msgs.msg import Odometry, OccupancyGrid, Path
 from std_msgs.msg import Float64MultiArray, String
 from sensor_msgs.msg import NavSatFix, PointCloud2, Imu
 from time import time
@@ -277,11 +277,32 @@ class AutonomousStateMachine(Node):
             self.shared_data.new_obstacle_avoidance_waypoints_flag = True
             self.shared_data.last_oa_trigger_time = time()
             self.get_logger().info(f"[OA] Obstacle detected — AlignAndMove path queued ({len(path)} waypoints)")
+            if self.shared_data.oa_path_publisher is not None:
+                self.shared_data.oa_path_publisher.publish(
+                    self._waypoints_to_path_msg(path, self.get_clock().now().to_msg())
+                )
 
     def _publish_occupancy_grid(self):
         gm = self.shared_data.global_map
         if gm.global_origin_x is None:
             return
+
+        # Compute inflation halo so it can be encoded as a distinct cost value
+        binary_grid = (gm.grid > gm.obstacle_threshold).astype(np.uint8)
+        radius_cells = max(1, int(config.OA_ROBOT_RADIUS_M / gm.cell_size_m))
+        inflated = gm._minkowski_sum_grid(binary_grid, radius_cells)
+
+        # grid[c,r] (c=x, r=y) → row-major OccupancyGrid [r*width+c] via transpose+flatten
+        flat = gm.grid.T.flatten().astype(np.int16)
+        flat[flat == 50] = -1  # remap unknown → OccupancyGrid unknown (-1)
+
+        # Overwrite inflation-halo cells with cost 70 so Foxglove renders them
+        # in a distinct color between free (0) and obstacle (100)
+        inflated_flat = inflated.T.flatten()
+        binary_flat = binary_grid.T.flatten()
+        inflation_halo = (inflated_flat == 1) & (binary_flat == 0)
+        flat[inflation_halo] = 70
+
         msg = OccupancyGrid()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'odom'
@@ -292,11 +313,22 @@ class AutonomousStateMachine(Node):
         msg.info.origin.position.y = gm.global_origin_y
         msg.info.origin.position.z = 0.0
         msg.info.origin.orientation.w = 1.0
-        # grid[c,r] (c=x, r=y) → row-major OccupancyGrid [r*width+c] via transpose+flatten
-        flat = gm.grid.T.flatten().astype(np.int16)
-        flat[flat == 50] = -1  # remap unknown (50) to OccupancyGrid unknown (-1)
         msg.data = flat.astype(np.int8).tolist()
         self._occupancy_grid_pub.publish(msg)
+
+    @staticmethod
+    def _waypoints_to_path_msg(waypoints, stamp, frame_id='odom') -> Path:
+        path_msg = Path()
+        path_msg.header.stamp = stamp
+        path_msg.header.frame_id = frame_id
+        for (wx, wy) in waypoints:
+            ps = PoseStamped()
+            ps.header = path_msg.header
+            ps.pose.position.x = float(wx)
+            ps.pose.position.y = float(wy)
+            ps.pose.orientation.w = 1.0
+            path_msg.poses.append(ps)
+        return path_msg
 
     def _tick(self):
         old_state = self.cur_state.__class__.__name__
@@ -397,6 +429,8 @@ class AutonomousStateMachine(Node):
         self.shared_data.led_publisher = self.create_publisher(Float64MultiArray, self.shared_data.LED_TOPIC_NAME, 10)
         if config.PUBLISH_COSTMAP:
             self._occupancy_grid_pub = self.create_publisher(OccupancyGrid, '/autonomous/global_map', 1)
+            self.shared_data.spiral_path_publisher = self.create_publisher(Path, '/autonomous/viz/spiral_path', 1)
+            self.shared_data.oa_path_publisher = self.create_publisher(Path, '/autonomous/viz/oa_path', 1)
         self.get_logger().info("[StartState] Publisher initialization complete.")
 
     def build_states(self):
