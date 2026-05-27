@@ -144,6 +144,13 @@ class NewObstacleAvoidanceControllerState(State):
         self.phase = "idle"
         self.phase_start_time = None
         self.shared_data.obstacle_avoidance_controller = None
+
+        spiral_states = (self.state_instance.forward_spiral_state, self.state_instance.backward_spiral_state)
+        if self.shared_data.post_oa_state in spiral_states:
+            self.shared_data.spiral_oa_resume = True
+            self.log("OA goal reached while spiraling — resuming spiral instead of validating")
+            return self.shared_data.post_oa_state
+
         return self.state_instance.validating_state
 
     def step(self):
