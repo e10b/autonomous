@@ -118,7 +118,10 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
 
         # Route target ids to the correct search channel.
         # object_id > 3 means ArUco target, else object target.
+        print("Trying to route...")
+        print("Auton input object_id:", auton_input.object_id)
         shared_data.should_look_for_ar = auton_input.object_id > 3
+        print(f"Should_look_for_ar: {shared_data.should_look_for_ar}")
         shared_data.should_look_for_obj = auton_input.object_id > 0 and not shared_data.should_look_for_ar
 
         if shared_data.should_look_for_ar:
