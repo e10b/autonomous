@@ -2,6 +2,7 @@ import math
 from time import time
 from autonomous_state_machine.gps_to_ned import GPS_2_NED
 from autonomous_state_machine.shared_data import SharedData
+import autonomous_state_machine.config as config
 import rclpy
 from sensor_msgs.msg import NavSatFix, Imu
 from std_msgs.msg import Float64MultiArray
@@ -260,6 +261,16 @@ def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
     try:
         ox = msg.pose.pose.position.x
         oy = msg.pose.pose.position.y
+
+        prev = shared_data._prev_local_odom_pos
+        if prev is not None:
+            delta = math.hypot(ox - prev[0], oy - prev[1])
+            shared_data.recal_distance_accumulator += delta
+            if (shared_data.recal_distance_accumulator >= config.RECALIBRATION_DISTANCE
+                    and shared_data.new_waypoints):
+                shared_data.needs_recalibration = True
+                shared_data.recal_distance_accumulator = 0.0
+
         shared_data.local_odom_position = (ox, oy)
         shared_data._prev_local_odom_pos = (ox, oy)
         shared_data.odom_ready = True

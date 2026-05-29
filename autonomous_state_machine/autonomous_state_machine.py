@@ -278,6 +278,11 @@ class AutonomousStateMachine(Node):
             self.shared_data.goal_odom = self._transform_goal_to_odom(*self.shared_data.goal_map_xy)
             self.shared_data.goal_dirty = False
 
+        if self.shared_data.needs_recalibration and self.shared_data.new_waypoints:
+            self._convert_waypoints_to_odom()
+            self.shared_data.needs_recalibration = False
+            self.get_logger().info(f"Refreshed odom-frame waypoints after {config.RECALIBRATION_DISTANCE}m travel")
+
         # Every-tick goal detection in odom frame (mirrors Navigation::remain() in C++)
         if self.cur_state is self.state_instance.drive_state:
             odom_pos = self.shared_data.local_odom_position
@@ -301,6 +306,8 @@ class AutonomousStateMachine(Node):
 
         if self.shared_data.new_waypoints_flag:
             self._convert_waypoints_to_odom()
+            self.shared_data.recal_distance_accumulator = 0.0
+            self.shared_data.needs_recalibration = False
             self.cur_state = self.state_instance.new_controller_state
 
         if (self.shared_data.new_obstacle_avoidance_waypoints_flag
