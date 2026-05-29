@@ -90,7 +90,7 @@ class ForwardSpiralState(State):
 
             if self.shared_data.found_obj_flag and self.shared_data.should_look_for_obj:
                 self.log("object detected during forward spiral — → GoToObjectState")
-                return self.goal_state # do not need to go to the object, just see it and stop
+                return self.state_instance.goal_state # do not need to go to the object, just see it and stop
 
             if self.shared_data.controller.did_reach_goal():
                 return self.state_instance.backward_spiral_state

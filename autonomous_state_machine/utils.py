@@ -221,13 +221,13 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints: Fl
 def found_object(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
-    shared_data.logger.info("Seeing object id:", msg.data[-1], "Looking for:", shared_data.target_obj_id)
+    shared_data.logger.info(f"Seeing object id: {msg.data[-1]}, Looking for: {shared_data.target_obj_id}")
     # Check if the detected object matches the target object ID
     if shared_data.target_obj_id == msg.data[-1]:
         [shared_data.obj_cX, shared_data.obj_cY,
         shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
         shared_data.counter += 1
-        shared_data.logger.info("Found object we were looking for with id:", msg.data[-1])
+        shared_data.logger.info(f"Found object we were looking for with id: {msg.data[-1]}")
         # If the object has been detected at least twice, set the found flag
         if shared_data.counter >= 2:
             shared_data.found_obj_flag = True
