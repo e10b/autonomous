@@ -14,6 +14,7 @@ class DriveState(State):
     def on_enter(self):
         ctrl = type(self.shared_data.controller).__name__ if self.shared_data.controller else "None"
         self.log(f"ENTER — controller: {ctrl}, LED blue")
+        self.shared_data.post_oa_state = self.state_instance.drive_state
         self.shared_data.start_time = time()
         led_msg = Float64MultiArray()
         led_msg.data = [0, 0, 255]

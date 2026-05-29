@@ -10,8 +10,8 @@ import tf2_ros
 import tf2_geometry_msgs
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
-from geometry_msgs.msg import TwistStamped, PointStamped, Twist
-from nav_msgs.msg import Odometry, OccupancyGrid
+from geometry_msgs.msg import TwistStamped, PointStamped, Twist, PoseStamped
+from nav_msgs.msg import Odometry, OccupancyGrid, Path
 from std_msgs.msg import Float64MultiArray, String
 from sensor_msgs.msg import NavSatFix, PointCloud2, Imu
 from time import time
@@ -228,14 +228,42 @@ class AutonomousStateMachine(Node):
             if goal is None:
                 return
 
-            # If the goal itself is inside an obstacle or inflation zone, redirect to the nearest free point
-            adjusted_goal = self.shared_data.global_map.nearest_free_point(goal[0], goal[1], config.OA_ROBOT_RADIUS_M)
-            if adjusted_goal[0] != goal[0] or adjusted_goal[1] != goal[1]:
-                self.get_logger().warn(
-                    f"[OA] Goal ({goal[0]:.2f}, {goal[1]:.2f}) is inside an obstacle/inflation zone — "
-                    f"redirecting to nearest free point ({adjusted_goal[0]:.2f}, {adjusted_goal[1]:.2f})"
-                )
-                goal = adjusted_goal
+            spiral_states = (self.state_instance.forward_spiral_state, self.state_instance.backward_spiral_state)
+            if self.shared_data.post_oa_state in spiral_states:
+                # Spiral mode: Theta* to the first unblocked spiral waypoint, not the GPS goal
+                spiral_pts = self.shared_data.spiral_waypoints
+                oa_goal = None
+                gm = self.shared_data.global_map
+                if spiral_pts and gm.global_origin_x is not None:
+                    binary_grid = (gm.grid > gm.obstacle_threshold).astype(np.uint8)
+                    radius_cells = max(1, int(config.OA_ROBOT_RADIUS_M / gm.cell_size_m))
+                    inflated = gm._minkowski_sum_grid(binary_grid, radius_cells)
+                    for i, (wx, wy) in enumerate(spiral_pts):
+                        sc = int((wx - gm.global_origin_x) / gm.cell_size_m)
+                        sr = int((wy - gm.global_origin_y) / gm.cell_size_m)
+                        if 0 <= sc < gm.grid_size and 0 <= sr < gm.grid_size and inflated[sc, sr] == 0:
+                            oa_goal = (wx, wy)
+                            self.shared_data.spiral_resume_index = i
+                            break
+                if oa_goal is None and spiral_pts:
+                    # All blocked — navigate to nearest free point; no waypoints left to resume
+                    oa_goal = gm.nearest_free_point(spiral_pts[-1][0], spiral_pts[-1][1], config.OA_ROBOT_RADIUS_M)
+                    self.shared_data.spiral_resume_index = len(spiral_pts)
+                    self.get_logger().warn(
+                        f"[OA] All spiral waypoints blocked — redirecting to nearest free point "
+                        f"({oa_goal[0]:.2f}, {oa_goal[1]:.2f})"
+                    )
+                if oa_goal is not None:
+                    goal = oa_goal
+            else:
+                # GPS navigation mode: redirect if goal is inside obstacle/inflation zone
+                adjusted_goal = self.shared_data.global_map.nearest_free_point(goal[0], goal[1], config.OA_ROBOT_RADIUS_M)
+                if adjusted_goal[0] != goal[0] or adjusted_goal[1] != goal[1]:
+                    self.get_logger().warn(
+                        f"[OA] Goal ({goal[0]:.2f}, {goal[1]:.2f}) is inside an obstacle/inflation zone — "
+                        f"redirecting to nearest free point ({adjusted_goal[0]:.2f}, {adjusted_goal[1]:.2f})"
+                    )
+                    goal = adjusted_goal
 
             path = self.shared_data.global_map.get_path(pos[0], pos[1], goal[0], goal[1], robot_radius_m=config.OA_ROBOT_RADIUS_M)
             if not path:
@@ -249,11 +277,32 @@ class AutonomousStateMachine(Node):
             self.shared_data.new_obstacle_avoidance_waypoints_flag = True
             self.shared_data.last_oa_trigger_time = time()
             self.get_logger().info(f"[OA] Obstacle detected — AlignAndMove path queued ({len(path)} waypoints)")
+            if self.shared_data.oa_path_publisher is not None:
+                self.shared_data.oa_path_publisher.publish(
+                    self._waypoints_to_path_msg(path, self.get_clock().now().to_msg())
+                )
 
     def _publish_occupancy_grid(self):
         gm = self.shared_data.global_map
         if gm.global_origin_x is None:
             return
+
+        # Compute inflation halo so it can be encoded as a distinct cost value
+        binary_grid = (gm.grid > gm.obstacle_threshold).astype(np.uint8)
+        radius_cells = max(1, int(config.OA_ROBOT_RADIUS_M / gm.cell_size_m))
+        inflated = gm._minkowski_sum_grid(binary_grid, radius_cells)
+
+        # grid[c,r] (c=x, r=y) → row-major OccupancyGrid [r*width+c] via transpose+flatten
+        flat = gm.grid.T.flatten().astype(np.int16)
+        flat[flat == 50] = -1  # remap unknown → OccupancyGrid unknown (-1)
+
+        # Overwrite inflation-halo cells with cost 70 so Foxglove renders them
+        # in a distinct color between free (0) and obstacle (100)
+        inflated_flat = inflated.T.flatten()
+        binary_flat = binary_grid.T.flatten()
+        inflation_halo = (inflated_flat == 1) & (binary_flat == 0)
+        flat[inflation_halo] = 70
+
         msg = OccupancyGrid()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = 'odom'
@@ -264,11 +313,22 @@ class AutonomousStateMachine(Node):
         msg.info.origin.position.y = gm.global_origin_y
         msg.info.origin.position.z = 0.0
         msg.info.origin.orientation.w = 1.0
-        # grid[c,r] (c=x, r=y) → row-major OccupancyGrid [r*width+c] via transpose+flatten
-        flat = gm.grid.T.flatten().astype(np.int16)
-        flat[flat == 50] = -1  # remap unknown (50) to OccupancyGrid unknown (-1)
         msg.data = flat.astype(np.int8).tolist()
         self._occupancy_grid_pub.publish(msg)
+
+    @staticmethod
+    def _waypoints_to_path_msg(waypoints, stamp, frame_id='odom') -> Path:
+        path_msg = Path()
+        path_msg.header.stamp = stamp
+        path_msg.header.frame_id = frame_id
+        for (wx, wy) in waypoints:
+            ps = PoseStamped()
+            ps.header = path_msg.header
+            ps.pose.position.x = float(wx)
+            ps.pose.position.y = float(wy)
+            ps.pose.orientation.w = 1.0
+            path_msg.poses.append(ps)
+        return path_msg
 
     def _tick(self):
         old_state = self.cur_state.__class__.__name__
@@ -376,6 +436,8 @@ class AutonomousStateMachine(Node):
         self.shared_data.led_publisher = self.create_publisher(Float64MultiArray, self.shared_data.LED_TOPIC_NAME, 10)
         if config.PUBLISH_COSTMAP:
             self._occupancy_grid_pub = self.create_publisher(OccupancyGrid, '/autonomous/global_map', 1)
+            self.shared_data.spiral_path_publisher = self.create_publisher(Path, '/autonomous/viz/spiral_path', 1)
+            self.shared_data.oa_path_publisher = self.create_publisher(Path, '/autonomous/viz/oa_path', 1)
         self.get_logger().info("[StartState] Publisher initialization complete.")
 
     def build_states(self):
