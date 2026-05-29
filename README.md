@@ -73,6 +73,66 @@ ros2 topic echo /autonomous/localization/odometry/local
 
 ---
 
+## Heartbeat / Comms-Loss Recovery
+
+The state machine monitors a heartbeat topic published by the basestation. If the signal is absent for longer than the configured timeout, the rover immediately stops, sets its LED to red, and autonomously navigates back to the last position where a heartbeat was confirmed.
+
+### How it works
+
+1. The basestation publishes a `std_msgs/msg/Bool` message (value `true`) at ~1 Hz on `/autonomous/heartbeat` (`SharedData.HEARTBEAT_TOPIC_NAME`).
+2. Each received message updates `SharedData.last_heartbeat_time` and `SharedData.last_safe_position` (current odom position).
+3. On the first odom message, `last_safe_position` is seeded to the rover's starting odom position as a fallback.
+4. Every tick `_tick()` checks: if at least one heartbeat was ever received **and** `time() - last_heartbeat_time > HEARTBEAT_TIMEOUT`, the rover enters `HeartbeatState` and begins returning to `last_safe_position`.
+5. `heartbeat_recovery_active` is set to `True` to prevent re-triggering while the rover is already returning. It is cleared when the operator sends a new `AutonInput` (implying comms have been restored).
+6. Obstacle avoidance remains fully active during the return journey.
+
+### Config flags (`config.py`)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `HEARTBEAT_ENABLED` | `True` | Set to `False` when running without a basestation (e.g., local sim testing with no heartbeat publisher). Disables the subscriber and the timeout check entirely. |
+| `HEARTBEAT_TIMEOUT` | `5.0` | Seconds of silence before the rover declares comms lost and begins returning. |
+
+The topic name is `SharedData.HEARTBEAT_TOPIC_NAME = "/autonomous/heartbeat"` (follows the same convention as all other topic names in this package).
+
+### Simulation testing
+
+**1. Launch the node normally** (with `HEARTBEAT_ENABLED = True` in `config.py`).
+
+**2. Start publishing a heartbeat** at 1 Hz to simulate an active basestation:
+```bash
+ros2 topic pub /autonomous/heartbeat std_msgs/msg/Bool "data: true" -r 1
+```
+
+**3. Verify the node is receiving it:**
+```bash
+ros2 topic echo /autonomous/heartbeat
+```
+
+**4. Simulate comms loss** by stopping the publisher (Ctrl-C in that terminal). After `HEARTBEAT_TIMEOUT` seconds (default 5 s) you should see:
+```
+[WARN] [autonomous_state_machine]: [Heartbeat] Signal lost — forcing return to last safe position
+[WARN] [HeartbeatState]: ENTER — heartbeat lost, returning to last safe position
+```
+and the `/set_state` topic will show the transition:
+```bash
+ros2 topic echo /set_state
+```
+
+**5. Confirm the LED command** goes red (`[255, 0, 0]`) on `/led`:
+```bash
+ros2 topic echo /led
+```
+
+**6. Restore comms and send a new mission** to re-engage normal operation:
+```bash
+# restart the heartbeat publisher
+ros2 topic pub /autonomous/heartbeat std_msgs/msg/Bool "data: true" -r 1
+# then send a new AutonInput — this clears heartbeat_recovery_active
+```
+
+---
+
 ## Known Issues
 
 - **Field of View Degradation Issue**: The local occupancy grid currently provides "free space" grid readings that are actually outside the physical field of view of the sensors. When integrated into the global map, this causes the probability mapping to falsely degrade (clear) tracked obstacle cells that it cannot actually see. 

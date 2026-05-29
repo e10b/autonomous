@@ -2,7 +2,7 @@
 
 """http://wiki.ros.org/mavros for topic ref"""
 
-from autonomous_state_machine.utils import on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg
+from autonomous_state_machine.utils import on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg, on_heartbeat
 import numpy as np
 import rclpy
 import rclpy.time
@@ -12,7 +12,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import TwistStamped, PointStamped, Twist, PoseStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
-from std_msgs.msg import Float64MultiArray, String
+from std_msgs.msg import Float64MultiArray, String, Bool
 from sensor_msgs.msg import NavSatFix, PointCloud2, Imu
 from time import time
 from autonomous_state_machine.global_map import GlobalMapManager
@@ -32,6 +32,7 @@ from autonomous_state_machine.states.spin_state import SpinState
 from autonomous_state_machine.states.backward_spiral_state import BackwardSpiralState
 from autonomous_state_machine.states.go_to_ar_state import GoToARState
 from autonomous_state_machine.states.circle_state import CircleState
+from autonomous_state_machine.states.heartbeat_state import HeartbeatState
 from autonomous_state_machine.shared_data import SharedData
 import autonomous_state_machine.config as config
 
@@ -364,6 +365,32 @@ class AutonomousStateMachine(Node):
                         self.shared_data.controller.reached_goal = True
                     self.cur_state = self.state_instance.validating_state
 
+        if config.HEARTBEAT_ENABLED:
+            with self.shared_data.mutex:
+                hb_time   = self.shared_data.last_heartbeat_time
+                hb_pos    = self.shared_data.last_safe_position
+                hb_active = self.shared_data.heartbeat_recovery_active
+            # Update last_safe_position only while idle at a known safe checkpoint
+            if (self.cur_state in (self.state_instance.start_state,
+                                   self.state_instance.goal_state)
+                    and hb_time > 0
+                    and time() - hb_time < config.HEARTBEAT_TIMEOUT):
+                with self.shared_data.mutex:
+                    if self.shared_data.local_odom_position is not None:
+                        self.shared_data.last_safe_position = self.shared_data.local_odom_position
+            # Dropout check — runs after safe position update so dropout can't overwrite it
+            if (hb_time > 0
+                    and time() - hb_time > config.HEARTBEAT_TIMEOUT
+                    and not hb_active
+                    and self.cur_state is not self.state_instance.start_state):
+                self.get_logger().warn("[Heartbeat] Signal lost — forcing return to last safe position")
+                with self.shared_data.mutex:
+                    cur = self.shared_data.local_odom_position
+                    if cur is not None and hb_pos is not None:
+                        self.shared_data.new_waypoints_odom = [cur, hb_pos]
+                    self.shared_data.heartbeat_recovery_active = True
+                self.cur_state = self.state_instance.heartbeat_state
+
         if self.shared_data.new_waypoints_flag:
             self._convert_waypoints_to_odom()
             self.shared_data.recal_distance_accumulator = 0.0
@@ -407,6 +434,11 @@ class AutonomousStateMachine(Node):
                     except Exception:
                         pass
         
+        if config.HEARTBEAT_ENABLED:
+            recovery_msg = Bool()
+            recovery_msg.data = self.shared_data.heartbeat_recovery_active
+            self.shared_data.heartbeat_recovery_publisher.publish(recovery_msg)
+
         new_state = self.cur_state.__class__.__name__
         if old_state != new_state:
             self.get_logger().info(f"[Transition] {old_state} → {new_state}")
@@ -426,6 +458,8 @@ class AutonomousStateMachine(Node):
         self.create_subscription(Float64MultiArray, self.shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME, lambda msg: on_receive_new_obstacle_avoidance_waypoints(msg, self.shared_data), 10)
         self.create_subscription(Odometry, self.shared_data.LOCAL_ODOM_TOPIC, lambda msg: on_new_local_odom_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(PointCloud2, '/autonomous/obstacle_avoidance/oakd/pointcloud', self._on_pointcloud, qos_profile)
+        if config.HEARTBEAT_ENABLED:
+            self.create_subscription(Bool, self.shared_data.HEARTBEAT_TOPIC_NAME, lambda msg: on_heartbeat(msg, self.shared_data), 10)
         self.get_logger().info("[StartState] Subscriber initialization complete.")
 
     def setup_publishers(self):
@@ -434,6 +468,8 @@ class AutonomousStateMachine(Node):
         self.shared_data.cur_state_publisher = self.create_publisher(String, self.shared_data.CUR_STATE_TOPIC_NAME, 10)
         self.shared_data.auton_path_publisher = self.create_publisher(Float64MultiArray, self.shared_data.AUTON_PATH_NAME, 10)
         self.shared_data.led_publisher = self.create_publisher(Float64MultiArray, self.shared_data.LED_TOPIC_NAME, 10)
+        if config.HEARTBEAT_ENABLED:
+            self.shared_data.heartbeat_recovery_publisher = self.create_publisher(Bool, self.shared_data.HEARTBEAT_RECOVERY_TOPIC_NAME, 10)
         if config.PUBLISH_COSTMAP:
             self._occupancy_grid_pub = self.create_publisher(OccupancyGrid, '/autonomous/global_map', 1)
             self.shared_data.spiral_path_publisher = self.create_publisher(Path, '/autonomous/viz/spiral_path', 1)
@@ -454,6 +490,7 @@ class AutonomousStateMachine(Node):
         self.state_instance.go_to_ar_state = GoToARState(self.shared_data, self.state_instance)
         self.state_instance.go_to_obj_state = GoToObjectState(self.shared_data, self.state_instance)
         self.state_instance.circle_state = CircleState(self.shared_data, self.state_instance)
+        self.state_instance.heartbeat_state = HeartbeatState(self.shared_data, self.state_instance)
 
 
 def main(args=None):

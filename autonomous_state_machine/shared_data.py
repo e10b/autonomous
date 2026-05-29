@@ -40,6 +40,8 @@ class SharedData():
     CUR_STATE_TOPIC_NAME = "/set_state"
     AUTON_PATH_NAME      = "/auton_path_display"
     LED_TOPIC_NAME       = "/led"
+    HEARTBEAT_TOPIC_NAME   = "/autonomous/heartbeat"
+    HEARTBEAT_RECOVERY_TOPIC_NAME = "/autonomous/heartbeat/in_recovery"
 
     ################ One mutex to rule all the following vars ################
     mutex = Lock()  # this is for the entire data class
@@ -122,6 +124,12 @@ class SharedData():
     oa_resume_state      = ""    # class name of the state interrupted by OA
     logger               = None
 
-    spiral_path_publisher = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True
-    oa_path_publisher     = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True
+    spiral_path_publisher        = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True
+    oa_path_publisher            = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True
+    heartbeat_recovery_publisher = None  # std_msgs/Bool; heartbeat recovery status for frontend
     llclient = None
+
+    last_heartbeat_time      = 0.0    # timestamp of last received heartbeat; 0 = never received
+    last_safe_position       = None   # (x, y) odom-frame position when heartbeat was last confirmed
+    heartbeat_recovery_active = False  # True while rover is returning to last safe position
+
