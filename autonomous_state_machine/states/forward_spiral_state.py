@@ -95,10 +95,10 @@ class ForwardSpiralState(State):
             if self.shared_data.controller.did_reach_goal():
                 return self.state_instance.backward_spiral_state
 
-            if (self.shared_data.should_look_for_ar and (time() - self.shared_data.start_time > self.shared_data.SPIRAL_TIMEOUT)):  # done with spiraling = return forward
+            if (self.shared_data.should_look_for_ar and (time() - self.shared_data.start_time > self.shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
                 return self.state_instance.backward_spiral_state
 
-            if (self.shared_data.should_look_for_obj and (time() - self.shared_data.start_time > self.shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling = return forawrd
+            if (self.shared_data.should_look_for_obj and (time() - self.shared_data.start_time > self.shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
                 return self.state_instance.backward_spiral_state
 
             return self.state_instance.forward_spiral_state
