@@ -59,6 +59,8 @@ class SharedData():
     odom_ready            = False
     local_odom_position   = None       # (x, y) in odom frame
     _prev_local_odom_pos  = None       # for delta distance accumulation
+    recal_distance_accumulator = 0.0   # meters traveled since last waypoint recalibration
+    needs_recalibration        = False  # set by odom callback; cleared by _tick after transform
 
     goal_map_xy  = None   # final goal in GPS_2_NED (map) frame; set when waypoints arrive
     goal_odom    = None   # final goal in odom frame; set via TF2 when goal_dirty is True

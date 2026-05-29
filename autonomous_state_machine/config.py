@@ -16,6 +16,9 @@ SIMULATION = False
 # Navigation controller: "pure_pursuit" or "align"
 CONTROLLER_TYPE = "align"
 
+# GPS recalibration: re-transform map-frame waypoints to odom after this much travel (meters)
+RECALIBRATION_DISTANCE = 10.0
+
 # Obstacle Avoidance
 BACKUP_DURATION = 2.0
 OA_COOLDOWN_EXTRA = 1.0        # extra seconds added to BACKUP_DURATION for OA re-trigger cooldown
