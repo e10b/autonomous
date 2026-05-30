@@ -1,7 +1,9 @@
 import numpy as np
+from time import time
 from autonomous_state_machine.states.state_class import State
 from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import Twist
+import autonomous_state_machine.config as config
 
 class ValidatingState(State):
     def __init__(self, shared_data, state_instance):
@@ -10,18 +12,35 @@ class ValidatingState(State):
         self.state_instance = state_instance
 
     def on_enter(self):
-        self.log(f"ENTER — stopped, collecting {self.shared_data.HIST_POSE_LEN} position samples to verify goal")
+        with self.shared_data.mutex:
+            in_recovery = config.HEARTBEAT_ENABLED and self.shared_data.heartbeat_recovery_active
 
-        # Stop the rover
+        if in_recovery:
+            self.log("ENTER (recovery) — at last safe position, waiting for heartbeat to restore", logtype="warn")
+        else:
+            self.log(f"ENTER — stopped, collecting {self.shared_data.HIST_POSE_LEN} position samples to verify goal")
+
         stop = Twist()
         stop.linear.x = 0.0
         stop.angular.z = 0.0
         self.shared_data.auton_publisher.publish(stop)
-        
+
         with self.shared_data.mutex:
             self.shared_data.position_history.clear()
 
     def step(self):
+        if config.HEARTBEAT_ENABLED:
+            with self.shared_data.mutex:
+                in_recovery = self.shared_data.heartbeat_recovery_active
+                hb_time     = self.shared_data.last_heartbeat_time
+            if in_recovery:
+                if hb_time > 0 and time() - hb_time < config.HEARTBEAT_TIMEOUT:
+                    self.log("heartbeat restored — clearing recovery flag, → StartState")
+                    with self.shared_data.mutex:
+                        self.shared_data.heartbeat_recovery_active = False
+                    return self.state_instance.start_state
+                return self.state_instance.validating_state
+
         # wait for 100 values, then average them
         # check if we are still inside the goal, else set up a new controller
         with self.shared_data.mutex:

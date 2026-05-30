@@ -94,6 +94,7 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
             return
 
         shared_data.go_home_position = shared_data.cur_position
+        shared_data.heartbeat_recovery_active = False
         start_pos = shared_data.cur_position  # capture before async gap
 
         shared_data.logger.info(f"Auton input object_id: {auton_input.object_id}")
@@ -221,13 +222,13 @@ def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints: Fl
 def found_object(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
-    shared_data.logger.info("Seeing object id:", msg.data[-1], "Looking for:", shared_data.target_obj_id)
+    shared_data.logger.info(f"Seeing object id: {msg.data[-1]}, Looking for: {shared_data.target_obj_id}")
     # Check if the detected object matches the target object ID
     if shared_data.target_obj_id == msg.data[-1]:
         [shared_data.obj_cX, shared_data.obj_cY,
         shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
         shared_data.counter += 1
-        shared_data.logger.info("Found object we were looking for with id:", msg.data[-1])
+        shared_data.logger.info(f"Found object we were looking for with id: {msg.data[-1]}")
         # If the object has been detected at least twice, set the found flag
         if shared_data.counter >= 2:
             shared_data.found_obj_flag = True
@@ -256,6 +257,12 @@ def reset_ar_data(shared_data: SharedData) -> None:
         shared_data.ar_size2 = 0
         shared_data.ar_id2 = 0
 
+def on_heartbeat(msg, shared_data: SharedData) -> None:
+    if not config.HEARTBEAT_ENABLED:
+        return
+    with shared_data.mutex:
+        shared_data.last_heartbeat_time = time()
+
 def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
     shared_data.mutex.acquire()
     try:
@@ -273,6 +280,8 @@ def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
 
         shared_data.local_odom_position = (ox, oy)
         shared_data._prev_local_odom_pos = (ox, oy)
+        if shared_data.last_safe_position is None:
+            shared_data.last_safe_position = (ox, oy)
         shared_data.odom_ready = True
         shared_data.cur_position = (ox, oy)
         shared_data.position_history.append(shared_data.cur_position)

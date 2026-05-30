@@ -44,3 +44,7 @@ CONFIDENCE_DEGRADED_AMOUNT = 0
 
 if SIMULATION:
     CONFIDENCE_DEGRADED_AMOUNT = 0
+
+# Heartbeat / comms-loss recovery
+HEARTBEAT_ENABLED = True          # set False when running without basestation
+HEARTBEAT_TIMEOUT = 5.0           # seconds of silence before declaring comms lost

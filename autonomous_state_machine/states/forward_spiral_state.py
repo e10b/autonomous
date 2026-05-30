@@ -83,13 +83,22 @@ class ForwardSpiralState(State):
                 self.log("Searching for object ID:", self.shared_data.target_obj_id)
             else:
                 self.log("Not searching for any object.")
+
+            if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
+                self.log("AR tag detected during forward spiral — → GoToARState")
+                return self.state_instance.go_to_ar_state
+
+            if self.shared_data.found_obj_flag and self.shared_data.should_look_for_obj:
+                self.log("object detected during forward spiral — → GoToObjectState")
+                return self.state_instance.goal_state # do not need to go to the object, just see it and stop
+
             if self.shared_data.controller.did_reach_goal():
                 return self.state_instance.backward_spiral_state
 
-            if (self.shared_data.should_look_for_ar and (time() - self.shared_data.start_time > self.shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
+            if (self.shared_data.should_look_for_ar and (time() - self.shared_data.start_time > self.shared_data.SPIRAL_TIMEOUT)):  # Still looking but time's up - switch to backward
                 return self.state_instance.backward_spiral_state
 
-            if (self.shared_data.should_look_for_obj and (time() - self.shared_data.start_time > self.shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
+            if (self.shared_data.should_look_for_obj and (time() - self.shared_data.start_time > self.shared_data.OBJ_SPIRAL_TIMEOUT)):  # Still looking but time's up - switch to backward
                 return self.state_instance.backward_spiral_state
 
             return self.state_instance.forward_spiral_state
