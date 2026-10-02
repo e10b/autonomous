@@ -2,7 +2,6 @@ import math
 import numpy as np
 from scipy.interpolate import CubicSpline
 from scipy.integrate import quad
-from scipy.spatial import KDTree
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
 
@@ -15,7 +14,6 @@ class PurePursuit():
     self.path = self.generate_path(pts, [start_ang, end_ang])
     self.waypoints = self.get_waypoints(self.path, fineness)
     self.num_waypoints = len(self.waypoints)
-    self.tree = self.build_waypoint_tree(self.waypoints)
 
     self.tolerance = tolerance
     self.URC_requirement = URC_requirement
@@ -26,16 +24,16 @@ class PurePursuit():
     self.look_ahead_distance = max_look_ahead
 
     self.reached_goal = False
-    self.outside_lookahead = False
 
   def did_reach_goal(self):
     return self.reached_goal
 
   def calc_velocity(self, shared_data):
-    """Return (left_wheel, right_wheel, done) without going through calc_steering.
+    """Return (linear_velocity, angular_velocity, done), matching AlignAndMove.calc_velocity.
 
     Uses the lookahead point from next_point() and a direct angular-error
     P-controller so steering is never zero due to cur_speed being 0 at startup.
+    Wheel speeds are computed and clamped first, then converted to a twist.
     """
     if shared_data.local_odom_position is None or shared_data.cur_heading is None:
       return None, None, False
@@ -60,24 +58,23 @@ class PurePursuit():
 
     left  = clamp(shared_data.AUTON_SPEED - steering_output, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
     right = clamp(shared_data.AUTON_SPEED + steering_output, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-    return left, right, self.did_reach_goal()
+    linear_velocity = (left + right) / 2.0
+    angular_velocity = (right - left) / shared_data.TRACK_WIDTH
+    return linear_velocity, angular_velocity, self.did_reach_goal()
 
   def step(self, shared_data) -> bool:
     """Calls calc_velocity, publishes the result, and returns done."""
-    left, right, done = self.calc_velocity(shared_data)
-    if left is None:
+    linear_velocity, angular_velocity, done = self.calc_velocity(shared_data)
+    if linear_velocity is None:
       return False
     vel = Twist()
-    vel.linear.x = (left + right) / 2.0
-    vel.angular.z = (right - left) / 1.53
+    vel.linear.x = linear_velocity
+    vel.angular.z = angular_velocity
     shared_data.auton_publisher.publish(vel)
     return done
 
   def check_should_redo_goal(self, cur_pose):
     return not self.reached_goal
-
-  def is_outside_lookahead(self):
-    return self.outside_lookahead
 
 
   def distance(self, pt1, pt2):
@@ -115,30 +112,6 @@ class PurePursuit():
 
     return self.waypoints[self.look_ahead_point_index]
 
-  # def calc_steering(self, cur_pose):
-  #   cur_pt = cur_pose[:2]
-  #   cur_ang = cur_pose[2]
-
-  #   next_pt = self.next_point(cur_pt)
-  #   if next_pt is None: return float("inf") # mean finished. don't steer
-
-  #   if np.linalg.norm(self.final-cur_pt) < self.tolerance:
-  #     self.reached_goal = True
-
-  #   diff = next_pt-cur_pt
-  #   d = np.linalg.norm(diff)
-  #   if d < 1e-6: # safety check
-  #     return float("inf")
-
-  #   # more safety checks
-  #   des_ang = np.arctan2(diff[1], diff[0])
-  #   ang_diff = np.arctan2(np.sin(des_ang-cur_ang), np.cos(des_ang-cur_ang))
-  #   sin_ang = np.sin(ang_diff)
-  #   if abs(sin_ang) < 1e-6:
-  #     return float("inf")
-
-  #   r = d / (2 * sin_ang)
-  #   return r # radius of steering
 
   @staticmethod
   def generate_path(pts, angs, heading_persistence=1):
@@ -168,14 +141,6 @@ class PurePursuit():
     return 1/PurePursuit.curvature(s, t)
 
   @staticmethod
-  def normal_vec(s, n):
-    # v = derivative(s, n, order=1)
-    v = s(n, 1)
-    # Rotate vector 90 degrees
-    norm = np.array([-v[1], v[0]])
-    return norm / np.linalg.norm(norm)
-
-  @staticmethod
   def get_waypoints(s, dist_btw_waypoints):
     def speed(t):
         # v = derivative(s, t, order=1)
@@ -186,10 +151,6 @@ class PurePursuit():
     fineness = 1 / num_segments
     n = np.arange(0, 1 + fineness, fineness)
     return s(n)
-
-  @staticmethod
-  def build_waypoint_tree(waypoints):
-    return KDTree(waypoints)
 
 def generate_spiral(center, theta_max, sparseness):
   pts = [center]

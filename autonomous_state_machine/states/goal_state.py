@@ -6,7 +6,6 @@ This state represents having reached a goal (e.g. the detected object/AR
 marker) and handles heartbeat logic and bookkeeping for last-known positions.
 """
 
-from time import time
 from autonomous_state_machine.states.state_class import State
 from autonomous_state_machine.utils import reset_ar_data
 from std_msgs.msg import Float64MultiArray, String

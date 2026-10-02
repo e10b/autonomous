@@ -25,7 +25,7 @@ class GoToARState(State):
             right = clamp(AR_DRIVE_SPEED - off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             vel = Twist()
             vel.linear.x = (left + right) / 2.0
-            vel.angular.z = (right - left) / 1.53
+            vel.angular.z = (right - left) / self.shared_data.TRACK_WIDTH
             self.shared_data.auton_publisher.publish(vel)
 
             if abs(self.shared_data.ar_size) > self.shared_data.AR_TOLERANCE:

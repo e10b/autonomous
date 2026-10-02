@@ -1,6 +1,5 @@
 from autonomous_state_machine.states.state_class import State
 from geometry_msgs.msg import Twist
-import math
 from time import time
 import numpy as np
 from autonomous_state_machine.align import AlignAndMove
@@ -11,9 +10,6 @@ class NewObstacleAvoidanceControllerState(State):
         super().__init__()
         self.shared_data = shared_data
         self.state_instance = state_instance
-        
-        # Phases = ["reverse", "turn", "forward"] or None if not currently in a recovery maneuver
-        self.recovery_phase = None
         
         # Path following
         self.path_waypoints = []  # List of (x, z) tuples in meters
@@ -72,47 +68,8 @@ class NewObstacleAvoidanceControllerState(State):
         # Convert equal negative wheel speeds into linear/ angular twist
         vel = Twist()
         vel.linear.x = (-base_speed + -base_speed) / 2.0
-        vel.angular.z = (-base_speed - (-base_speed)) / 1.53
+        vel.angular.z = (-base_speed - (-base_speed)) / self.shared_data.TRACK_WIDTH
         self.shared_data.auton_publisher.publish(vel)
-
-    def _resume_after_oa(self):
-        """Clean up OA state and return to the state that was interrupted."""
-        # Refresh cooldown from completion time so the rover has time to move
-        # away before OA can re-trigger on the same obstacle.
-        self.shared_data.last_oa_trigger_time = time()
-
-        resume = self.shared_data.oa_resume_state
-        self.shared_data.oa_resume_state = ""
-        self.shared_data.obstacle_avoidance_running = False
-        self.shared_data.new_obstacle_avoidance_waypoints_flag = False
-        self.shared_data.obstacle_avoidance_new_waypoints = []
-        self.phase = "idle"
-        self.phase_start_time = None
-        self.shared_data.obstacle_avoidance_controller = None
-
-        if resume in ("ForwardSpiralState", "BackwardSpiralState"):
-            self.log("OA complete — restarting spiral from current position")
-            return self.state_instance.forward_spiral_state
-
-        if resume == "GoToARState":
-            if self.shared_data.found_ar_flag:
-                return self.state_instance.go_to_ar_state
-            self.log("OA complete — AR tag lost during avoidance, re-spiraling")
-            return self.state_instance.forward_spiral_state
-
-        if resume == "GoToObjectState":
-            if self.shared_data.found_obj_flag:
-                return self.state_instance.go_to_obj_state
-            self.log("OA complete — object lost during avoidance, re-spiraling")
-            return self.state_instance.forward_spiral_state
-
-        # DriveState, NewControllerState, or unknown — rebuild PurePursuit path
-        path_rebuilt = self._rebuild_main_controller_from_current_path()
-        if path_rebuilt:
-            self.log("OA complete — rebuilding PurePursuit path → NewControllerState")
-            return self.state_instance.new_controller_state
-        self.log("OA complete, path rebuild failed — resuming DriveState", logtype="warn")
-        return self.state_instance.drive_state
 
     def _rebuild_main_controller_from_current_path(self):
         # Set new_waypoints in map/GPS-NED frame; _convert_waypoints_to_odom() in _tick

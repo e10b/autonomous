@@ -33,5 +33,4 @@ class StateInstance():
     backward_spiral_state   = None
     go_to_ar_state          = None
     go_to_obj_state         = None
-    circle_state            = None
     heartbeat_state         = None

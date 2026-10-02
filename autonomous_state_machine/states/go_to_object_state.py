@@ -25,7 +25,7 @@ class GoToObjectState(State):
             right = clamp(OBJ_DRIVE_SPEED - off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             vel = Twist()
             vel.linear.x = (left + right) / 2.0
-            vel.angular.z = (right - left) / 1.53
+            vel.angular.z = (right - left) / self.shared_data.TRACK_WIDTH
             self.shared_data.auton_publisher.publish(vel)  # check if we need different publisher here, ADD
 
             # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:

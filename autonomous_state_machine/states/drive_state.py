@@ -1,9 +1,7 @@
 from autonomous_state_machine.states.state_class import State, StateInstance
 from autonomous_state_machine.shared_data import SharedData
 from std_msgs.msg import Float64MultiArray
-from geometry_msgs.msg import Twist
 from time import time
-from autonomous_state_machine.utils import clamp
 
 class DriveState(State):
     def __init__(self, shared_data: SharedData, state_instance: StateInstance):
@@ -29,24 +27,17 @@ class DriveState(State):
             if controller is None or self.shared_data.cur_position is None or self.shared_data.cur_heading is None:
                 return self.state_instance.drive_state
 
-            left, right, done = controller.calc_velocity(self.shared_data)
+            # step() computes and publishes the Twist for either controller type
+            # (PurePursuit or AlignAndMove) and returns True once the goal is reached.
+            done = controller.step(self.shared_data)
             if done:
-                self.log("PurePursuit reports done — → ValidatingState")
+                self.log(f"{type(controller).__name__} reports done — → ValidatingState")
                 return self.state_instance.validating_state
-            if left is None:
-                return self.state_instance.drive_state
-
-            left = clamp(left, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            right = clamp(right, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            vel_msg = Twist()
-            vel_msg.linear.x = (left + right) / 2.0
-            vel_msg.angular.z = (right - left) / 1.53
-            self.shared_data.auton_publisher.publish(vel_msg)
 
             if self.shared_data.should_look_for_ar and self.shared_data.found_ar_flag:
-                self.log("AR tag detected — stopping PurePursuit, → GoToARState")
+                self.log("AR tag detected — stopping controller, → GoToARState")
                 return self.state_instance.go_to_ar_state
             if self.shared_data.should_look_for_obj and self.shared_data.found_obj_flag:
-                self.log("object detected — stopping PurePursuit, → GoToObjectState")
+                self.log("object detected — stopping controller, → GoToObjectState")
                 return self.state_instance.go_to_obj_state
             return self.state_instance.drive_state

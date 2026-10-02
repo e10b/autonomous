@@ -13,8 +13,8 @@ PUBLISH_COSTMAP = False  # publish global map as nav_msgs/OccupancyGrid for Foxg
 # Simulation Flag: Turns off degradation for sim, turns it on for real
 SIMULATION = False
 
-# Navigation controller: "pure_pursuit" or "align"
-CONTROLLER_TYPE = "align"
+# Navigation controller used by NewControllerState: "pure_pursuit" or "align"
+CONTROLLER_TYPE = "pure_pursuit"
 
 # GPS recalibration: re-transform map-frame waypoints to odom after this much travel (meters)
 RECALIBRATION_DISTANCE = 10.0

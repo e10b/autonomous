@@ -38,7 +38,7 @@ The `map → odom` transform is a static identity in simulation (published by `r
 | Theta\* start + goal | **odom** | `get_path()` inputs are `local_odom_position` and `goal_odom` |
 | OA waypoints (Theta\* output) | **odom** | Passed to `AlignAndMove`; compared with `local_odom_position` in `align.py` |
 | `goal_odom` | **odom** | GPS goal transformed via TF2 `map → odom`; stored in `SharedData.goal_odom` |
-| `goal_map_xy` | **map** (GPS/NED) | `GPS_2_NED.gps_to_xy()` output; Python equivalent of the C++ `/fromLL` service |
+| `goal_map_xy` | **map** (GPS/NED) | Output of the `robot_localization` `/fromLL` service |
 | `cur_position` | **map** (GPS/NED) | Used only for GPS display; not used in navigation decisions |
 | ASCII map robot position | **odom** | `print_ascii_map` called with `local_odom_position` so robot marker is correct |
 | Every-tick goal check (`_tick`) | **odom** | `dist(local_odom_position, goal_odom) < 2 m` → `validating_state` |
@@ -50,7 +50,7 @@ The `map → odom` transform is a static identity in simulation (published by `r
 
 ```
 GPS lat/lon
-   │  GPS_2_NED.gps_to_xy()          (on_receive_new_gps_waypoint in utils.py)
+   │  /fromLL service call            (on_receive_new_auton_input in utils.py)
    ▼
 goal_map_xy  (map / GPS-NED frame)
    │  TF2 lookup_transform('odom','map')  (_transform_goal_to_odom in autonomous_state_machine.py)

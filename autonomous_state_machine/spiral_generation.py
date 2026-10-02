@@ -11,7 +11,6 @@ import math
 # ref: https://stackoverflow.com/questions/13894715/draw-equidistant-points-on-a-spiral
 def get_spiral(centerX, centerY, radius, coils, step, rotation=1, direction=1):
     pts = []
-    angs = []
     # value of theta corresponding to end of last coil
     thetaMax = coils * 2 * math.pi
 
@@ -23,8 +22,6 @@ def get_spiral(centerX, centerY, radius, coils, step, rotation=1, direction=1):
     # TODO: Go to the origin
     # goto(centerX, centerY)
     pts.append((centerX, centerY))
-
-    prevX, prevY = centerX, centerY
 
     # For every side, step around and away from center.
     # start at the angle corresponding to a distance of chord

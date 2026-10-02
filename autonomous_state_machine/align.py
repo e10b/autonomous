@@ -74,7 +74,6 @@ class AlignAndMove():
         ANG_THRESHOLD = 0.05 # 2.8 degrees
         TURN_SPEED = shared_data.AUTON_TURN_CONST * shared_data.AUTON_SPEED
 
-        # TODO: switch left and right vels with angular and linear vels
         if self.phase == "align":
             if abs(ang_diff) > ANG_THRESHOLD:
                 # Turn in place: left negative, right positive for left turn
@@ -88,7 +87,7 @@ class AlignAndMove():
                 else:
                     turn = raw_turn
                 self.linear_velocity = 0.0
-                self.angular_velocity = (2.0 * turn) / 1.53
+                self.angular_velocity = (2.0 * turn) / shared_data.TRACK_WIDTH
                 self.angular_velocity = clamp(
                     self.angular_velocity,
                     -shared_data.MAX_AUTON_SPEED,
@@ -113,36 +112,6 @@ class AlignAndMove():
         self.angular_velocity = 0.0
         print(f"[AlignAndMove] MOVING: dist={distance:.3f}m -> linear={self.linear_velocity:.2f}, angular={self.angular_velocity:.2f}")
         return self.linear_velocity, self.angular_velocity, False
-
-    # def calc_steering(self, cur_pose):
-    #     """Return a steering radius similar to PurePursuit.calc_steering(cur_pose).
-    #     This lets DriveState treat AlignAndMove like PurePursuit.
-    #     """
-    #     cur_pt = np.array(cur_pose[:2])
-    #     cur_ang = cur_pose[2]
-
-    #     if self.current_target is None:
-    #         return float('inf')
-
-    #     target = np.array(self.current_target)
-    #     diff = target - cur_pt
-    #     d = np.linalg.norm(diff)
-    #     if d < 1e-6:
-    #         return float('inf')
-
-    #     # Mark reached goal if close to final waypoint
-    #     final = np.array(self.user_pts[-1])
-    #     if np.linalg.norm(final - cur_pt) < self.waypoint_threshold:
-    #         self.reached_goal = True
-
-    #     des_ang = math.atan2(diff[1], diff[0])
-    #     ang_diff = math.atan2(math.sin(des_ang - cur_ang), math.cos(des_ang - cur_ang))
-    #     sin_ang = math.sin(ang_diff)
-    #     if abs(sin_ang) < 1e-6:
-    #         return float('inf')
-
-    #     r = d / (2 * sin_ang)
-    #     return r
 
     def check_should_redo_goal(self, cur_pose):
         return not self.reached_goal

@@ -1,10 +1,7 @@
 import math
 from time import time
-from autonomous_state_machine.gps_to_ned import GPS_2_NED
 from autonomous_state_machine.shared_data import SharedData
 import autonomous_state_machine.config as config
-import rclpy
-from sensor_msgs.msg import NavSatFix, Imu
 from std_msgs.msg import Float64MultiArray
 from geometry_msgs.msg import TwistStamped
 from nav_msgs.msg import Odometry
@@ -28,42 +25,6 @@ def on_new_velocity_msg(msg: TwistStamped, shared_data: SharedData) -> None:
     # Release the mutex after updating shared_data
     shared_data.mutex.release()
     
-def on_receive_new_gps_waypoint_llclient(gps_waypoint_list: Float64MultiArray, shared_data: SharedData) -> None:
-    shared_data.logger.info(f"Received GPS waypoint list for LL client: {gps_waypoint_list}")
-
-    data = gps_waypoint_list.data
-    if len(data) < 2:
-        shared_data.logger.error("Received GPS waypoint list is too short.")
-        return
-
-    lat, lon = data[0], data[1]
-
-    req = FromLL.Request()
-    req.ll_point.latitude = float(lat)
-    req.ll_point.longitude = float(lon)
-    req.ll_point.altitude = 0.0
-
-    future = shared_data.llclient.call_async(req)
-
-    def _fromll_done(fut):
-        try:
-            resp = fut.result()
-            if resp is None:
-                shared_data.logger.error("FromLL returned None")
-                return
-            map_pt = resp.map_point
-            with shared_data.mutex:
-                xy = (map_pt.x, map_pt.y)
-                shared_data.new_waypoints = [shared_data.cur_position, xy]
-                shared_data.goal_map_xy = xy
-                shared_data.goal_dirty = True
-                shared_data.new_waypoints_flag = True
-                shared_data.logger.info(f"FromLL: lat={lat}, lon={lon} -> xy={xy}")
-        except Exception as e:
-            shared_data.logger.exception("FromLL call failed: %s", e)
-
-    future.add_done_callback(_fromll_done)
-
 def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData) -> None:
     """
     Autonomous input is in the following form:
@@ -212,13 +173,6 @@ def convert_arr_to_waypoint_list(arr: list[float]) -> list[tuple[float, float]]:
     return out
 
 
-def on_receive_new_obstacle_avoidance_waypoints(obstacle_avoidence_waypoints: Float64MultiArray, shared_data: SharedData) -> None:
-    # Avoidance is now triggered directly from the occupancy grid callback in the
-    # state machine node (_on_occupancy_grid), which fires regardless of whether
-    # obstacle_detection's local Theta* finds a route.  This callback is kept as a
-    # no-op so the subscription doesn't error out but doesn't double-trigger.
-    pass
-
 def found_object(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # Acquire the mutex to ensure thread-safe access to shared_data
     shared_data.mutex.acquire()
@@ -244,8 +198,6 @@ def reset_ar_data(shared_data: SharedData) -> None:
     with shared_data.mutex:
         shared_data.should_look_for_ar = False
         shared_data.found_ar_flag      = False
-        shared_data.do_gate_task       = False
-        shared_data.do_circle_task     = False
 
         shared_data.ar_cX = 0
         shared_data.ar_cY = 0
@@ -285,7 +237,6 @@ def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
         shared_data.odom_ready = True
         shared_data.cur_position = (ox, oy)
         shared_data.position_history.append(shared_data.cur_position)
-        shared_data.gps_ready = True
         
         # Get odometry orientation data
         orientation_q = msg.pose.pose.orientation

@@ -2,7 +2,7 @@
 
 """http://wiki.ros.org/mavros for topic ref"""
 
-from autonomous_state_machine.utils import on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_receive_new_obstacle_avoidance_waypoints, on_new_local_odom_msg, on_heartbeat
+from autonomous_state_machine.utils import on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_new_local_odom_msg, on_heartbeat
 import numpy as np
 import rclpy
 import rclpy.time
@@ -13,7 +13,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import TwistStamped, PointStamped, Twist, PoseStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
 from std_msgs.msg import Float64MultiArray, String, Bool
-from sensor_msgs.msg import NavSatFix, PointCloud2, Imu
+from sensor_msgs.msg import PointCloud2
 from time import time
 from autonomous_state_machine.global_map import GlobalMapManager
 
@@ -31,7 +31,6 @@ from autonomous_state_machine.states.go_to_object_state import GoToObjectState
 from autonomous_state_machine.states.spin_state import SpinState
 from autonomous_state_machine.states.backward_spiral_state import BackwardSpiralState
 from autonomous_state_machine.states.go_to_ar_state import GoToARState
-from autonomous_state_machine.states.circle_state import CircleState
 from autonomous_state_machine.states.heartbeat_state import HeartbeatState
 from autonomous_state_machine.shared_data import SharedData
 import autonomous_state_machine.config as config
@@ -401,7 +400,6 @@ class AutonomousStateMachine(Node):
                 and not self.shared_data.obstacle_avoidance_running
                 and not self.shared_data.new_waypoints_flag
                 and old_state in _OA_INTERRUPTIBLE):
-            self.shared_data.oa_resume_state = old_state
             self.shared_data.obstacle_avoidance_running = True
             self.cur_state = self.state_instance.new_obstacle_avoidance_controller_state
 
@@ -415,6 +413,10 @@ class AutonomousStateMachine(Node):
 
         if time() - self.shared_data.latest_ar_found > 2:
             self.shared_data.found_ar_flag = False
+        if time() - self.shared_data.latest_obj_found > 2:
+            # Object lost: clear the flag and require 2 fresh detections again
+            self.shared_data.found_obj_flag = False
+            self.shared_data.counter = 0
 
         if config.PRINT_ASCII_MAP or config.PUBLISH_COSTMAP:
             self._map_print_counter += 1
@@ -449,13 +451,10 @@ class AutonomousStateMachine(Node):
         # Initialize subscribers for all relevant topics
         self.get_logger().info("[StartState] Initializing subscribers...")
         
-        # self.create_subscription(NavSatFix, self.shared_data.GPS_TOPIC_NAME, lambda msg: on_new_gps_msg(msg, self.shared_data), qos_profile)
-        # self.create_subscription(Imu, self.shared_data.COMPASS_TOPIC_NAME, lambda msg: on_new_heading_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(AutonInput, self.shared_data.AUTON_INPUT_TOPIC_NAME, lambda msg: on_receive_new_auton_input(msg, self.shared_data), 10)
         self.create_subscription(TwistStamped, self.shared_data.VELOCITY_TOPIC_NAME, lambda msg: on_new_velocity_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(Float64MultiArray, self.shared_data.ARTAG_TOPIC_NAME, lambda msg: found_ar_tag(msg, self.shared_data), 10)
         self.create_subscription(Float64MultiArray, self.shared_data.OBJECT_TOPIC_NAME, lambda msg: found_object(msg, self.shared_data), 10)
-        self.create_subscription(Float64MultiArray, self.shared_data.OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME, lambda msg: on_receive_new_obstacle_avoidance_waypoints(msg, self.shared_data), 10)
         self.create_subscription(Odometry, self.shared_data.LOCAL_ODOM_TOPIC, lambda msg: on_new_local_odom_msg(msg, self.shared_data), qos_profile)
         self.create_subscription(PointCloud2, '/autonomous/obstacle_avoidance/oakd/pointcloud', self._on_pointcloud, qos_profile)
         if config.HEARTBEAT_ENABLED:
@@ -489,7 +488,6 @@ class AutonomousStateMachine(Node):
         self.state_instance.backward_spiral_state = BackwardSpiralState(self.shared_data, self.state_instance)
         self.state_instance.go_to_ar_state = GoToARState(self.shared_data, self.state_instance)
         self.state_instance.go_to_obj_state = GoToObjectState(self.shared_data, self.state_instance)
-        self.state_instance.circle_state = CircleState(self.shared_data, self.state_instance)
         self.state_instance.heartbeat_state = HeartbeatState(self.shared_data, self.state_instance)
 
 

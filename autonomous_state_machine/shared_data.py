@@ -12,12 +12,12 @@ class SharedData():
     MAX_AUTON_SPEED = 3
     SPIN_SPEED = 1.0
     STEERING_CONST = 4.5
+    TRACK_WIDTH = 1.53  # wheel separation; angular.z = (right - left) / TRACK_WIDTH
     SPIRAL_RADIUS = 20
     OBJ_SPIRAL_RADIUS = 11
     SPIRAL_COILS = 4
     OBJ_SPIRAL_COILS = 8
     
-    SEGMENT_LENGTH   = 3.0
     LOCAL_ODOM_TOPIC  = "/autonomous/localization/odometry/local"
 
     AR_TIMEOUT = 20
@@ -26,17 +26,12 @@ class SharedData():
     AR_TOLERANCE = 0.067 # size of ar tag we want to see before we stop
     OBJ_H_TOLERANCE = 0.08 # height of object we want to see before we stop
     OBJ_W_TOLERANCE = 0.08 # width of object we want to see before we stop
-    AR_TAGS_DIST_TOLERANCE = 0.01 # for checking if distance between two ar tags are too close
     SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
-    BACKUP_TIMEOUT = 2
     AUTON_TOPIC_NAME     = "/autonomous/drivetrain/command"
-    GPS_TOPIC_NAME       = "/autonomous/localization/gps/fix"
     VELOCITY_TOPIC_NAME  = "/autonomous/localization/gps/vel"
-    COMPASS_TOPIC_NAME   = "/autonomous/localization/gps/heading"
     AUTON_INPUT_TOPIC_NAME = "/autonomous/input"
     ARTAG_TOPIC_NAME     = "/artag_position"
     OBJECT_TOPIC_NAME    = "/object_position"
-    OBSTACLE_AVOIDANCE_WAYPOINTS_TOPIC_NAME = "/obstacle_avoidance/path"
     CUR_STATE_TOPIC_NAME = "/set_state"
     AUTON_PATH_NAME      = "/auton_path_display"
     LED_TOPIC_NAME       = "/led"
@@ -49,10 +44,7 @@ class SharedData():
     ################ global variables ################
     cur_position = None  # current position in x and y converted from gps intput
     cur_heading = None  # current orientation in radians counter clockwise as calculated from local odometry
-    cur_heading_raw = None  # current orientation in radians counter clockwise received directly from compass
     cur_speed = 0     # we'll get this from 'global_position/gp_vel', NOT SAME UNITS AS AUTON SPEED
-    gps_ready = False
-    heading_ready = False
     # store the backup position to go to if we fail to reach the target
     go_home_position = None
     # [(x, y)] used to check if we are actually near the target
@@ -64,7 +56,7 @@ class SharedData():
     recal_distance_accumulator = 0.0   # meters traveled since last waypoint recalibration
     needs_recalibration        = False  # set by odom callback; cleared by _tick after transform
 
-    goal_map_xy  = None   # final goal in GPS_2_NED (map) frame; set when waypoints arrive
+    goal_map_xy  = None   # final goal in map frame (from /fromLL); set when waypoints arrive
     goal_odom    = None   # final goal in odom frame; set via TF2 when goal_dirty is True
     goal_dirty   = False  # set True when goal_map_xy changes; cleared after TF2 transform
 
@@ -78,8 +70,6 @@ class SharedData():
     should_look_for_ar  = False  # all should_look_for_ar values to synchronize with new_waypoints
     found_ar_flag       = False  # if ar tag has been detected, can go to ar tag state
     found_obj_flag      = False  # if object has been detect, can go to object state
-    do_gate_task        = False  # if two tags detected, then do gate task
-    do_circle_task      = False  # if one tag detected, then do circle task
     latest_ar_found     = 0      # time stamp for latest ar tag found
     latest_obj_found    = 0      # time stamp for latest object found
 
@@ -121,7 +111,6 @@ class SharedData():
 
     global_map           = None   # GlobalMapManager instance
     last_oa_trigger_time = 0.0   # timestamp of last obstacle avoidance trigger
-    oa_resume_state      = ""    # class name of the state interrupted by OA
     logger               = None
 
     spiral_path_publisher        = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True

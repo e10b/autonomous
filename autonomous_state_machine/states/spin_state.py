@@ -23,7 +23,7 @@ class SpinState(State):
             right = clamp(self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED) if hasattr(self.shared_data, 'MAX_AUTON_SPEED') else self.shared_data.SPIN_SPEED
             vel = Twist()
             vel.linear.x = (left + right) / 2.0
-            vel.angular.z = (right - left) / 1.53
+            vel.angular.z = (right - left) / self.shared_data.TRACK_WIDTH
             self.shared_data.auton_publisher.publish(vel)
 
             if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
