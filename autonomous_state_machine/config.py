@@ -17,6 +17,9 @@ SIMULATION = False
 # Navigation controller used by NewControllerState: "pure_pursuit" or "align"
 CONTROLLER_TYPE = "pure_pursuit"
 
+# Odometry watchdog: stop the rover and pause the state machine if no local odom for this long (seconds)
+ODOM_TIMEOUT = 0.5
+
 # GPS recalibration: re-transform map-frame waypoints to odom after this much travel (meters)
 RECALIBRATION_DISTANCE = 10.0
 

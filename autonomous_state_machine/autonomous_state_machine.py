@@ -78,6 +78,7 @@ class AutonomousStateMachine(Node):
         self.cur_state.on_enter()
 
         self._map_print_counter = 0
+        self._odom_stale = False
         self.timer = self.create_timer(1.0 / RATE, self._tick)
 
         # LL client for goal transofrm
@@ -309,7 +310,40 @@ class AutonomousStateMachine(Node):
             path_msg.poses.append(ps)
         return path_msg
 
+    def _handle_stale_odom(self) -> bool:
+        """Odometry watchdog. If local odom is older than config.ODOM_TIMEOUT, publish a stop
+        and pause the state machine until it returns. StartState is exempt: the rover is
+        already idle there, and constant stop commands at boot could fight teleop.
+
+        Returns:
+            True if odom is stale and the rest of this tick should be skipped.
+        """
+        if self.cur_state is self.state_instance.start_state:
+            return False
+
+        state_name = self.cur_state.__class__.__name__
+        age = time() - self.shared_data.last_odom_time
+        if age <= config.ODOM_TIMEOUT:
+            if self._odom_stale:
+                self._odom_stale = False
+                self.get_logger().info(f"[Odom] odometry restored — resuming {state_name}")
+            return False
+
+        if not self._odom_stale:
+            self._odom_stale = True
+            self.get_logger().warn(
+                f"[Odom] no local odometry for {age:.2f}s (> {config.ODOM_TIMEOUT}s) — "
+                f"stopping rover and pausing {state_name}")
+        stop = Twist()
+        stop.linear.x = 0.0
+        stop.angular.z = 0.0
+        self.shared_data.auton_publisher.publish(stop)
+        return True
+
     def _tick(self):
+        if self._handle_stale_odom():
+            return
+
         old_state = self.cur_state.__class__.__name__
 
         # Re-transform goal to odom only when new waypoints arrived (dirty flag = O(1))

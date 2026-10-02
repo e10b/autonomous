@@ -50,6 +50,7 @@ class SharedData():
     position_history = deque(maxlen=HIST_POSE_LEN)
 
     odom_ready            = False
+    last_odom_time        = 0.0        # time() of the last local odom message; 0.0 = none yet
     local_odom_position   = None       # (x, y) in odom frame
     _prev_local_odom_pos  = None       # for delta distance accumulation
     recal_distance_accumulator = 0.0   # meters traveled since last waypoint recalibration

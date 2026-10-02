@@ -258,6 +258,7 @@ def on_heartbeat(msg, shared_data: SharedData) -> None:
 def on_new_local_odom_msg(msg: Odometry, shared_data: SharedData) -> None:
     shared_data.mutex.acquire()
     try:
+        shared_data.last_odom_time = time()
         ox = msg.pose.pose.position.x
         oy = msg.pose.pose.position.y
 
