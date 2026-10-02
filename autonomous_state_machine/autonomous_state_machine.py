@@ -10,6 +10,8 @@ import rclpy.time
 import tf2_ros
 import tf2_geometry_msgs
 from rclpy.node import Node
+from rclpy.executors import ExternalShutdownException
+from rclpy.signals import SignalHandlerOptions
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import TwistStamped, PointStamped, Twist, PoseStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
@@ -334,11 +336,24 @@ class AutonomousStateMachine(Node):
             self.get_logger().warn(
                 f"[Odom] no local odometry for {age:.2f}s (> {config.ODOM_TIMEOUT}s) — "
                 f"stopping rover and pausing {state_name}")
+        self.publish_stop()
+        return True
+
+    def publish_stop(self):
+        """Publish a zero Twist on the drive command topic."""
         stop = Twist()
         stop.linear.x = 0.0
         stop.angular.z = 0.0
         self.shared_data.auton_publisher.publish(stop)
-        return True
+
+    def publish_stop_on_shutdown(self):
+        """Best-effort final stop when the node exits. Never raises, so it can't mask the
+        exception that caused a crash."""
+        try:
+            self.publish_stop()
+            self.get_logger().info("Shutting down — published stop command")
+        except Exception as e:
+            self.get_logger().error(f"Shutting down — failed to publish stop command: {e}")
 
     def _tick(self):
         if self._handle_stale_odom():
@@ -505,15 +520,22 @@ class AutonomousStateMachine(Node):
 
 
 def main(args=None):
-    rclpy.init(args=args)
-    node = AutonomousStateMachine()
+    # Handle Ctrl-C ourselves (as KeyboardInterrupt) instead of rclpy's default handler,
+    # which shuts the context down first and makes the final stop command fail with
+    # "publisher's context is invalid".
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
+    node = None
     try:
+        node = AutonomousStateMachine()
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
-        rclpy.shutdown()
+        # Runs on Ctrl-C and on crashes, so the rover doesn't keep its last drive command.
+        if node is not None:
+            node.publish_stop_on_shutdown()
+            node.destroy_node()
+        rclpy.try_shutdown()
 
 if __name__ == "__main__":
     main()

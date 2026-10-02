@@ -52,6 +52,7 @@ def make_node(cur_state_name="drive_state", last_odom_time=None):
         get_logger=lambda: logger,
     )
     node._handle_stale_odom = lambda: AutonomousStateMachine._handle_stale_odom(node)
+    node.publish_stop = lambda: AutonomousStateMachine.publish_stop(node)
     return node, logger
 
 
