@@ -72,6 +72,60 @@ class NewObstacleAvoidanceControllerState(State):
         vel.angular.z = (-base_speed - (-base_speed)) / self.shared_data.TRACK_WIDTH
         self.shared_data.auton_publisher.publish(vel)
 
+    def _reset_oa_state(self):
+        """Clear all obstacle-avoidance bookkeeping so OA can trigger again."""
+        self.shared_data.obstacle_avoidance_running = False
+        self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+        self.shared_data.obstacle_avoidance_new_waypoints = []
+        self.shared_data.obstacle_avoidance_controller = None
+        self.phase = "idle"
+        self.phase_start_time = None
+
+    def _interrupted_spiral(self):
+        """Return the spiral state OA interrupted, or None if OA did not interrupt a spiral."""
+        spiral_states = (self.state_instance.forward_spiral_state, self.state_instance.backward_spiral_state)
+        post_oa = self.shared_data.post_oa_state
+        return post_oa if post_oa in spiral_states else None
+
+    def _trim_spiral_to_resume_index(self):
+        """Drop the spiral waypoints OA already went around. Returns (resume_idx, remaining_count)."""
+        resume_idx = self.shared_data.spiral_resume_index
+        self.shared_data.spiral_waypoints = self.shared_data.spiral_waypoints[resume_idx:]
+        return resume_idx, len(self.shared_data.spiral_waypoints)
+
+    def _finish_oa(self, completed: bool):
+        """Reset OA state and return the state that OA interrupted.
+
+        The caller is responsible for publishing a stop command first.
+
+        Args:
+            completed: True if the OA path was followed to the end. The spiral is then
+                trimmed to the waypoint where OA rejoins it, and GPS/odom navigation
+                re-plans from the new position. False if there was no usable path:
+                the spiral resumes where it left off and DriveState resumes as-is.
+        """
+        self._reset_oa_state()
+
+        spiral = self._interrupted_spiral()
+        if spiral is not None:
+            if completed:
+                resume_idx, remaining = self._trim_spiral_to_resume_index()
+                self.log(f"all OA waypoints done — resuming {spiral.__class__.__name__} "
+                         f"from waypoint {resume_idx} ({remaining} remaining)")
+            else:
+                self.log(f"no OA path to follow — resuming {spiral.__class__.__name__}", logtype="warn")
+            self.shared_data.spiral_oa_resume = True
+            return spiral
+
+        if completed:
+            if replan_to_goal(self.shared_data, reason="obstacle avoidance complete"):
+                self.log("all OA waypoints done — re-planning to goal → NewControllerState")
+                return self.state_instance.new_controller_state
+            self.log("all OA waypoints done, path rebuild failed — resuming DriveState", logtype="warn")
+        else:
+            self.log("no OA path to follow — resuming DriveState", logtype="warn")
+        return self.state_instance.drive_state
+
     def _goal_reached_transition(self):
         """If odom position is within 2m of goal_odom, perform cleanup and return
         validating_state. Returns None if the goal has not been reached yet."""
@@ -85,24 +139,17 @@ class NewObstacleAvoidanceControllerState(State):
         self.log(f"goal reached during AlignAndMove ({dist:.2f}m) — → ValidatingState")
         if self.shared_data.controller is not None:
             self.shared_data.controller.reached_goal = True
-        self.shared_data.obstacle_avoidance_running = False
-        self.shared_data.new_obstacle_avoidance_waypoints_flag = False
-        self.shared_data.obstacle_avoidance_new_waypoints = []
-        self.phase = "idle"
-        self.phase_start_time = None
-        self.shared_data.obstacle_avoidance_controller = None
+        self._reset_oa_state()
 
-        spiral_states = (self.state_instance.forward_spiral_state, self.state_instance.backward_spiral_state)
-        if self.shared_data.post_oa_state in spiral_states:
-            resume_idx = self.shared_data.spiral_resume_index
-            remaining = self.shared_data.spiral_waypoints[resume_idx:]
-            self.shared_data.spiral_waypoints = remaining
+        spiral = self._interrupted_spiral()
+        if spiral is not None:
+            resume_idx, remaining = self._trim_spiral_to_resume_index()
             self.shared_data.spiral_oa_resume = True
             self.log(
                 f"OA goal reached while spiraling — resuming spiral instead of validating "
-                f"from waypoint {resume_idx} ({len(remaining)} remaining)"
+                f"from waypoint {resume_idx} ({remaining} remaining)"
             )
-            return self.shared_data.post_oa_state
+            return spiral
 
         return self.state_instance.validating_state
 
@@ -111,33 +158,9 @@ class NewObstacleAvoidanceControllerState(State):
             if self.shared_data.new_obstacle_avoidance_waypoints_flag:
                 self._load_shared_waypoints()
 
-            spiral_states = (self.state_instance.forward_spiral_state, self.state_instance.backward_spiral_state)
-
-            if not self.path_waypoints:
+            if not self.path_waypoints or self.current_waypoint_index >= len(self.path_waypoints):
                 self._publish_stop()
-                self.shared_data.obstacle_avoidance_running = False
-                self.shared_data.new_obstacle_avoidance_waypoints_flag = False
-                self.shared_data.obstacle_avoidance_new_waypoints = []
-                self.phase = "idle"
-                self.phase_start_time = None
-                post_oa = self.shared_data.post_oa_state
-                if post_oa in spiral_states:
-                    self.shared_data.spiral_oa_resume = True
-                    return post_oa
-                return self.state_instance.drive_state
-
-            if self.current_waypoint_index >= len(self.path_waypoints):
-                self._publish_stop()
-                self.shared_data.obstacle_avoidance_running = False
-                self.shared_data.new_obstacle_avoidance_waypoints_flag = False
-                self.shared_data.obstacle_avoidance_new_waypoints = []
-                self.phase = "idle"
-                self.phase_start_time = None
-                post_oa = self.shared_data.post_oa_state
-                if post_oa in spiral_states:
-                    self.shared_data.spiral_oa_resume = True
-                    return post_oa
-                return self.state_instance.drive_state
+                return self._finish_oa(completed=False)
 
             # Phase 1: move backwards briefly to clear the obstacle.
             if self.phase == "reverse":
@@ -178,24 +201,5 @@ class NewObstacleAvoidanceControllerState(State):
                     result = self._goal_reached_transition()
                     if result is not None:
                         return result
-                    self.shared_data.obstacle_avoidance_running = False
-                    self.shared_data.new_obstacle_avoidance_waypoints_flag = False
-                    self.shared_data.obstacle_avoidance_new_waypoints = []
-                    self.phase = "idle"
-                    self.phase_start_time = None
-                    self.shared_data.obstacle_avoidance_controller = None
-                    post_oa = self.shared_data.post_oa_state
-                    if post_oa in spiral_states:
-                        resume_idx = self.shared_data.spiral_resume_index
-                        remaining = self.shared_data.spiral_waypoints[resume_idx:]
-                        self.shared_data.spiral_waypoints = remaining
-                        self.shared_data.spiral_oa_resume = True
-                        self.log(f"all OA waypoints done — resuming {post_oa.__class__.__name__} "
-                                 f"from waypoint {resume_idx} ({len(remaining)} remaining)")
-                        return post_oa
-                    if replan_to_goal(self.shared_data, reason="obstacle avoidance complete"):
-                        self.log("all OA waypoints done — re-planning to goal → NewControllerState")
-                        return self.state_instance.new_controller_state
-                    self.log("all OA waypoints done, path rebuild failed — resuming DriveState", logtype="warn")
-                    return self.state_instance.drive_state
+                    return self._finish_oa(completed=True)
                 return self.state_instance.new_obstacle_avoidance_controller_state
