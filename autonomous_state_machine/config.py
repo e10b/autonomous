@@ -20,6 +20,24 @@ CONTROLLER_TYPE = "pure_pursuit"
 # Odometry watchdog: stop the rover and pause the state machine if no local odom for this long (seconds)
 ODOM_TIMEOUT = 0.5
 
+# Goal arrival: within this distance (meters) of the goal counts as reached. Shared by the
+# every-tick check in _tick, the OA state, and PurePursuit's tolerance so they always agree.
+GOAL_REACHED_RADIUS_M = 2.0
+
+# Detection timeouts: clear found_ar_flag / found_obj_flag after this long (seconds) without a detection
+AR_LOST_TIMEOUT = 2.0
+OBJ_LOST_TIMEOUT = 2.0
+
+# Visual servoing toward a detected AR tag / object (GoToARState, GoToObjectState)
+GO_TO_AR_DRIVE_SPEED = 1.0
+GO_TO_OBJ_DRIVE_SPEED = 0.8
+GO_TO_OBJ_TIMEOUT = 5.0        # seconds in GoToObjectState before giving up and spinning to re-acquire
+VISUAL_SERVO_GAIN = 1.5        # steering per unit of horizontal offset from image center (cX - 0.5)
+
+# Spiral search: drop the next spiral waypoint once the rover is within this distance (meters).
+# Keep equal to the spiral step size (step=2 in the get_spiral calls in the spiral states).
+SPIRAL_WAYPOINT_PRUNE_DIST = 2.0
+
 # GPS recalibration: re-transform map-frame waypoints to odom after this much travel (meters)
 RECALIBRATION_DISTANCE = 10.0
 

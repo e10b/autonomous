@@ -5,9 +5,7 @@ from geometry_msgs.msg import Twist, PoseStamped
 from nav_msgs.msg import Path
 from time import time
 import math
-
-# Match the spiral step size (2 m) — pop a waypoint once the rover is this close.
-_WAYPOINT_PRUNE_DIST = 2.0
+import autonomous_state_machine.config as config
 
 class ForwardSpiralState(State):
     def __init__(self, shared_data, state_instance):
@@ -73,7 +71,7 @@ class ForwardSpiralState(State):
             pos = self.shared_data.local_odom_position
             wpts = self.shared_data.spiral_waypoints
             if pos is not None and len(wpts) > 1:
-                if math.hypot(pos[0] - wpts[0][0], pos[1] - wpts[0][1]) < _WAYPOINT_PRUNE_DIST:
+                if math.hypot(pos[0] - wpts[0][0], pos[1] - wpts[0][1]) < config.SPIRAL_WAYPOINT_PRUNE_DIST:
                     wpts.pop(0)
 
             # print(f"found flag: {self.shared_data.found_ar_flag}, should look: {self.shared_data.should_look_for_ar}")

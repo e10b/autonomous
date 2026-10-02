@@ -2,8 +2,7 @@ from autonomous_state_machine.states.state_class import State
 from time import time
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
-
-AR_DRIVE_SPEED = 1.0
+import autonomous_state_machine.config as config
 
 class GoToARState(State):
     def __init__(self, shared_data, state_instance):
@@ -21,8 +20,8 @@ class GoToARState(State):
         with self.shared_data.mutex:
 
             off_center = self.shared_data.ar_cX - 0.5
-            left = clamp(AR_DRIVE_SPEED + off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            right = clamp(AR_DRIVE_SPEED - off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            left = clamp(config.GO_TO_AR_DRIVE_SPEED + off_center * config.VISUAL_SERVO_GAIN, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            right = clamp(config.GO_TO_AR_DRIVE_SPEED - off_center * config.VISUAL_SERVO_GAIN, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             vel = Twist()
             vel.linear.x = (left + right) / 2.0
             vel.angular.z = (right - left) / self.shared_data.TRACK_WIDTH

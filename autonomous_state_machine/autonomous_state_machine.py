@@ -381,7 +381,7 @@ class AutonomousStateMachine(Node):
                     throttle_duration_sec=1.0)
             else:
                 d = np.linalg.norm(np.array(odom_pos) - np.array(goal))
-                if d < 2.0:
+                if d < config.GOAL_REACHED_RADIUS_M:
                     self.get_logger().info(f"[DriveState] goal reached ({d:.2f}m) — entering ValidatingState")
                     # Mark PP controller reached so ValidatingState sees did_reach_goal()=True.
                     # Without this, a freshly-built controller has reached_goal=False and loops:
@@ -437,9 +437,9 @@ class AutonomousStateMachine(Node):
             self.last_state = self.cur_state
             self.cur_state = self.cur_state.step()
 
-        if time() - self.shared_data.latest_ar_found > 2:
+        if time() - self.shared_data.latest_ar_found > config.AR_LOST_TIMEOUT:
             self.shared_data.found_ar_flag = False
-        if time() - self.shared_data.latest_obj_found > 2:
+        if time() - self.shared_data.latest_obj_found > config.OBJ_LOST_TIMEOUT:
             # Object lost: clear the flag and require 2 fresh detections again
             self.shared_data.found_obj_flag = False
             self.shared_data.counter = 0

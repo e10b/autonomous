@@ -5,8 +5,6 @@ import autonomous_state_machine.config as config
 import numpy as np
 import math
 
-TOLERANCE = 2
-
 class NewControllerState(State):
     def __init__(self, shared_data, state_instance):
         super().__init__()
@@ -32,7 +30,7 @@ class NewControllerState(State):
                     waypoints,
                     self.shared_data.cur_heading,
                     next_orientation,
-                    tolerance=TOLERANCE
+                    tolerance=config.GOAL_REACHED_RADIUS_M
                 )
                 self.log(f"ENTER — PurePursuit initialized, {len(waypoints)} odom waypoints, goal heading {math.degrees(next_orientation):.1f}°")
             self.shared_data.new_waypoints_flag = False

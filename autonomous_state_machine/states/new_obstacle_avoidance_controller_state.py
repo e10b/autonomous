@@ -127,14 +127,14 @@ class NewObstacleAvoidanceControllerState(State):
         return self.state_instance.drive_state
 
     def _goal_reached_transition(self):
-        """If odom position is within 2m of goal_odom, perform cleanup and return
+        """If odom position is within GOAL_REACHED_RADIUS_M of goal_odom, perform cleanup and return
         validating_state. Returns None if the goal has not been reached yet."""
         _cur_pos = self.shared_data.local_odom_position
         _goal    = self.shared_data.goal_odom
         if _cur_pos is None or _goal is None:
             return None
         dist = float(np.linalg.norm(np.array(_cur_pos) - np.array(_goal)))
-        if dist >= 2.0:
+        if dist >= config.GOAL_REACHED_RADIUS_M:
             return None
         self.log(f"goal reached during AlignAndMove ({dist:.2f}m) — → ValidatingState")
         if self.shared_data.controller is not None:

@@ -2,9 +2,7 @@ from autonomous_state_machine.states.state_class import State
 from time import time
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
-
-OBJ_DRIVE_SPEED = 0.8
-OBJ_TIMEOUT = 5
+import autonomous_state_machine.config as config
 
 class GoToObjectState(State):
     def __init__(self, shared_data, state_instance):
@@ -21,8 +19,8 @@ class GoToObjectState(State):
     def step(self) -> State:
         with self.shared_data.mutex:
             off_center = self.shared_data.obj_cX - 0.5
-            left = clamp(OBJ_DRIVE_SPEED + off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            right = clamp(OBJ_DRIVE_SPEED - off_center * 1.5, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            left = clamp(config.GO_TO_OBJ_DRIVE_SPEED + off_center * config.VISUAL_SERVO_GAIN, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            right = clamp(config.GO_TO_OBJ_DRIVE_SPEED - off_center * config.VISUAL_SERVO_GAIN, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
             vel = Twist()
             vel.linear.x = (left + right) / 2.0
             vel.angular.z = (right - left) / self.shared_data.TRACK_WIDTH
@@ -40,7 +38,7 @@ class GoToObjectState(State):
                 self.shared_data.found_obj_flag = False  # Reset flag
                 return self.state_instance.goal_state  # Transition to goal state
 
-            if time() - self.shared_data.start_time > OBJ_TIMEOUT:
+            if time() - self.shared_data.start_time > config.GO_TO_OBJ_TIMEOUT:
                 return self.state_instance.spin_state
 
             return self.state_instance.go_to_obj_state
