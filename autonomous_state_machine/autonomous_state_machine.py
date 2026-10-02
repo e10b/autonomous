@@ -4,6 +4,7 @@
 
 from autonomous_state_machine.utils import on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_new_local_odom_msg, on_heartbeat
 import numpy as np
+from scipy import ndimage
 import rclpy
 import rclpy.time
 import tf2_ros
@@ -91,35 +92,13 @@ class AutonomousStateMachine(Node):
         if binary_grid.size == 0:
             return 0
 
-        occupied = np.argwhere(binary_grid > 0)
-        if occupied.size == 0:
+        # ndimage.label's default 2D structuring element is a cross, i.e. 4-connectivity.
+        labels, num_blobs = ndimage.label(binary_grid > 0)
+        if num_blobs == 0:
             return 0
 
-        occupied_set = {tuple(cell) for cell in occupied}
-        visited = set()
-        largest = 0
-
-        for start in occupied_set:
-            if start in visited:
-                continue
-
-            stack = [start]
-            visited.add(start)
-            component_size = 0
-
-            while stack:
-                row, col = stack.pop()
-                component_size += 1
-
-                for d_row, d_col in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                    neighbor = (row + d_row, col + d_col)
-                    if neighbor in occupied_set and neighbor not in visited:
-                        visited.add(neighbor)
-                        stack.append(neighbor)
-
-            largest = max(largest, component_size)
-
-        return largest
+        # bincount[0] counts background cells; the rest are per-blob sizes.
+        return int(np.bincount(labels.ravel())[1:].max())
 
     @staticmethod
     def _parse_pointcloud2_xyz(msg: PointCloud2) -> np.ndarray:
