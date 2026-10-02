@@ -327,12 +327,10 @@ class AutonomousStateMachine(Node):
             odom_pos = self.shared_data.local_odom_position
             goal     = self.shared_data.goal_odom
             if odom_pos is None or goal is None:
-                self._goal_skip_counter = getattr(self, '_goal_skip_counter', 0) + 1
-                if self._goal_skip_counter >= RATE:
-                    self._goal_skip_counter = 0
-                    print(f"[GoalCheck] waiting — odom={'SET' if odom_pos else 'NONE'} goal_odom={'SET' if goal else 'NONE'}")
+                self.get_logger().info(
+                    f"[GoalCheck] waiting — odom={'SET' if odom_pos else 'NONE'} goal_odom={'SET' if goal else 'NONE'}",
+                    throttle_duration_sec=1.0)
             else:
-                self._goal_skip_counter = 0
                 d = np.linalg.norm(np.array(odom_pos) - np.array(goal))
                 if d < 2.0:
                     self.get_logger().info(f"[DriveState] goal reached ({d:.2f}m) — entering ValidatingState")

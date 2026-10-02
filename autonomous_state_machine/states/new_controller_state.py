@@ -22,7 +22,7 @@ class NewControllerState(State):
                 return
 
             if config.CONTROLLER_TYPE == "align":
-                self.shared_data.controller = AlignAndMove(waypoints)
+                self.shared_data.controller = AlignAndMove(waypoints, logger=self.shared_data.logger)
                 self.shared_data.controller.start_next_target()
                 self.log(f"ENTER — AlignAndMove initialized, {len(waypoints)} odom waypoints")
             else:

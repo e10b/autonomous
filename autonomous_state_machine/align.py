@@ -1,6 +1,10 @@
 import math
+import rclpy.logging
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
+
+# Per-tick diagnostics are logged at DEBUG, at most once per this many seconds per call site.
+TICK_LOG_THROTTLE_SEC = 1.0
 
 
 class AlignAndMove():
@@ -11,7 +15,9 @@ class AlignAndMove():
     as a thin compatibility wrapper that publishes the computed command.
     """
 
-    def __init__(self, pts, start_ang=None, waypoint_threshold: float = 0.2):
+    def __init__(self, pts, start_ang=None, waypoint_threshold: float = 0.2, logger=None):
+        # Pass the node's logger (shared_data.logger) so messages reach rqt_console / ros2 bag.
+        self.logger = logger or rclpy.logging.get_logger("AlignAndMove")
         self.user_pts = list(pts)
         self.user_unreached_pts = list(pts)
         self.current_target = None
@@ -42,8 +48,10 @@ class AlignAndMove():
             return None, None, False
 
         robot_x, robot_z = shared_data.local_odom_position
-        print("Waypoint list:", self.user_unreached_pts)
-        print(f"[AlignAndMove] Current position: ({robot_x:.2f}, {robot_z:.2f}), heading: {shared_data.cur_heading:.2f} rad")
+        self.logger.debug(
+            f"[AlignAndMove] position ({robot_x:.2f}, {robot_z:.2f}), heading {shared_data.cur_heading:.2f} rad, "
+            f"remaining waypoints {self.user_unreached_pts}",
+            throttle_duration_sec=TICK_LOG_THROTTLE_SEC)
         target_x, target_z = self.current_target
 
         dx = target_x - robot_x
@@ -52,7 +60,7 @@ class AlignAndMove():
 
         # If within threshold, advance to next target or signal all done.
         if distance < self.waypoint_threshold:
-            print(f"[AlignAndMove] Target reached: {self.current_target} (dist={distance:.2f}m)")
+            self.logger.info(f"[AlignAndMove] Target reached: {self.current_target} (dist={distance:.2f}m)")
             if self.user_unreached_pts:
                 self.user_unreached_pts.pop(0)
             self.current_target = None
@@ -82,7 +90,9 @@ class AlignAndMove():
                 MIN_TURN_SPEED = 0.2 * shared_data.AUTON_SPEED
                 if abs(raw_turn) < MIN_TURN_SPEED:
                     enforced = math.copysign(MIN_TURN_SPEED, raw_turn)
-                    print(f"[AlignAndMove] Enforcing min turn: raw={raw_turn:.3f} -> enforced={enforced:.3f}")
+                    self.logger.debug(
+                        f"[AlignAndMove] Enforcing min turn: raw={raw_turn:.3f} -> enforced={enforced:.3f}",
+                        throttle_duration_sec=TICK_LOG_THROTTLE_SEC)
                     turn = enforced
                 else:
                     turn = raw_turn
@@ -93,12 +103,14 @@ class AlignAndMove():
                     -shared_data.MAX_AUTON_SPEED,
                     shared_data.MAX_AUTON_SPEED,
                 )
-                print(f"[AlignAndMove] TURNING: ang_diff={ang_diff:.3f} rad -> linear={self.linear_velocity:.2f}, angular={self.angular_velocity:.2f}")
+                self.logger.debug(
+                    f"[AlignAndMove] TURNING: ang_diff={ang_diff:.3f} rad -> linear={self.linear_velocity:.2f}, angular={self.angular_velocity:.2f}",
+                    throttle_duration_sec=TICK_LOG_THROTTLE_SEC)
                 return self.linear_velocity, self.angular_velocity, False
 
             # Aligned, switch to moving forward.
             self.phase = "move"
-            print(f"[AlignAndMove] ALIGNED -> switching to MOVE phase (ang_diff={ang_diff:.3f})")
+            self.logger.info(f"[AlignAndMove] ALIGNED -> switching to MOVE phase (ang_diff={ang_diff:.3f})")
             self.linear_velocity = 0.0
             self.angular_velocity = 0.0
             return self.linear_velocity, self.angular_velocity, False
@@ -110,7 +122,9 @@ class AlignAndMove():
             shared_data.MAX_AUTON_SPEED,
         )
         self.angular_velocity = 0.0
-        print(f"[AlignAndMove] MOVING: dist={distance:.3f}m -> linear={self.linear_velocity:.2f}, angular={self.angular_velocity:.2f}")
+        self.logger.debug(
+            f"[AlignAndMove] MOVING: dist={distance:.3f}m -> linear={self.linear_velocity:.2f}, angular={self.angular_velocity:.2f}",
+            throttle_duration_sec=TICK_LOG_THROTTLE_SEC)
         return self.linear_velocity, self.angular_velocity, False
 
     def check_should_redo_goal(self, cur_pose):
@@ -128,7 +142,7 @@ class AlignAndMove():
             return False
         self.current_target = tuple(self.user_unreached_pts[0])
         self.phase = "align"
-        print(f"[AlignAndMove] New target set: {self.current_target}")
+        self.logger.info(f"[AlignAndMove] New target set: {self.current_target}")
         return True
 
     def step(self, shared_data) -> bool:

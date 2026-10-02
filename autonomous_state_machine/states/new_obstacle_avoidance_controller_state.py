@@ -36,7 +36,7 @@ class NewObstacleAvoidanceControllerState(State):
         # Create an AlignAndMove controller specifically for obstacle avoidance
         # and start the first target. This controller will publish wheel
         # commands directly to auton_publisher and implement simple rotate-then-move.
-        self.shared_data.obstacle_avoidance_controller = AlignAndMove(waypoints)
+        self.shared_data.obstacle_avoidance_controller = AlignAndMove(waypoints, logger=self.shared_data.logger)
         self.shared_data.obstacle_avoidance_controller.start_next_target()
 
         self.phase = "reverse"
@@ -164,7 +164,7 @@ class NewObstacleAvoidanceControllerState(State):
                 controller = self.shared_data.obstacle_avoidance_controller
                 if controller is None:
                     self.log("rebuilding AlignAndMove controller for retry path")
-                    controller = AlignAndMove(self.path_waypoints)
+                    controller = AlignAndMove(self.path_waypoints, logger=self.shared_data.logger)
                     controller.start_next_target()
                     self.shared_data.obstacle_avoidance_controller = controller
 

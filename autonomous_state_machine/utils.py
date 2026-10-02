@@ -157,18 +157,14 @@ def rotate_and_translate_2d(x: float, y: float, pos_x: float, pos_y: float, head
 # Converts a flat array to a list of 2-tuples representing waypoints.
 # Example: [1, 2, 3, 4, 5, 6] -> [(1, 2), (3, 4), (5, 6)]
 def convert_arr_to_waypoint_list(arr: list[float]) -> list[tuple[float, float]]:
-    print("Converting array to waypoint list:", arr)
     out = []
     it = iter(arr)
     for x in it:
         try:
             y = next(it)
             out.append((x, y))
-            print(f"Added waypoint: ({x}, {y})")
         except StopIteration:
-            print("Error: array has odd number of elements")
             raise ValueError('array has odd number of elements')
-    print("Final waypoint list:", out)
     return out
 
 
