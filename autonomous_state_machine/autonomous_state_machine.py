@@ -397,23 +397,25 @@ class AutonomousStateMachine(Node):
             self.shared_data.found_obj_flag = False
             self.shared_data.counter = 0
 
-        if config.PRINT_ASCII_MAP or config.PUBLISH_COSTMAP:
+        if config.WRITE_ASCII_MAP or config.PUBLISH_COSTMAP:
             self._map_print_counter += 1
             if self._map_print_counter >= RATE:
                 self._map_print_counter = 0
                 pos = self.shared_data.local_odom_position
                 if pos is not None:
-                    if config.PRINT_ASCII_MAP:
+                    if config.WRITE_ASCII_MAP:
                         path = self.shared_data.obstacle_avoidance_new_waypoints or None
-                        self.shared_data.global_map.print_ascii_map(pos[0], pos[1], path_waypoints=path, goal=self.shared_data.goal_odom)
+                        self.shared_data.global_map.write_ascii_map(
+                            config.ASCII_MAP_PATH, pos[0], pos[1],
+                            path_waypoints=path, goal=self.shared_data.goal_odom)
                     if config.PUBLISH_COSTMAP:
                         self._publish_occupancy_grid()
-                else:
+                elif config.WRITE_ASCII_MAP:
                     try:
-                        with open("/tmp/rover_map.txt", "w") as f:
+                        with open(config.ASCII_MAP_PATH, "w") as f:
                             f.write("--- Autonomous State Machine: waiting for pose data ---\n")
-                    except Exception:
-                        pass
+                    except OSError as e:
+                        self.get_logger().warn(f"could not write ASCII map to {config.ASCII_MAP_PATH}: {e}")
         
         if config.HEARTBEAT_ENABLED:
             recovery_msg = Bool()

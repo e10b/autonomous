@@ -7,7 +7,8 @@ SHIFT_SIZE = PERSISTENT_GRID_SIZE // 2
 GRID_CELL_SIZE = 0.10
 
 # Debugging
-PRINT_ASCII_MAP = True
+WRITE_ASCII_MAP = True                  # write an ASCII view of the global map once per second
+ASCII_MAP_PATH = "/tmp/rover_map.txt"   # view with: watch -n 0.5 cat /tmp/rover_map.txt
 PUBLISH_COSTMAP = False  # publish global map as nav_msgs/OccupancyGrid for Foxglove
 
 # Simulation Flag: Turns off degradation for sim, turns it on for real

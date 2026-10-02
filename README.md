@@ -10,7 +10,7 @@ High-level parameters for the node, including the global map manager and obstacl
 - **`PERSISTENT_GRID_SIZE`**: Total continuous size of the square map canvas in meters.
 - **`OVERLAP_SIZE` / `SHIFT_SIZE`**: Manage the sliding window behavior when the rover approaches the edge of the persistent grid, keeping the rover centered.
 - **`GRID_CELL_SIZE`**: The physical resolution of a single grid cell in meters (e.g., 0.10m).
-- **`PRINT_ASCII_MAP`**: Set to `True` to print an ASCII representation of the global grid and path to the terminal (useful for debugging).
+- **`WRITE_ASCII_MAP`** / **`ASCII_MAP_PATH`**: Set `WRITE_ASCII_MAP = True` to write an ASCII representation of the global grid and path to `ASCII_MAP_PATH` (default `/tmp/rover_map.txt`) once per second (useful for debugging).
 Use `watch -n 0.5 cat /tmp/rover_map.txt` to see this map.
 - **`BACKUP_DURATION`**: Time in seconds the rover back-drives when encountering an immediate obstacle before executing an avoidance maneuver (the cooldown for recalculating paths dynamically scales with this).
 - **`SIMULATION`**: Flag to toggle simulation-specific behavior (e.g., automatically turning off obstacle degradation).
@@ -40,7 +40,7 @@ The `map → odom` transform is a static identity in simulation (published by `r
 | `goal_odom` | **odom** | GPS goal transformed via TF2 `map → odom`; stored in `SharedData.goal_odom` |
 | `goal_map_xy` | **map** (GPS/NED) | Output of the `robot_localization` `/fromLL` service |
 | `cur_position` | **map** (GPS/NED) | Used only for GPS display; not used in navigation decisions |
-| ASCII map robot position | **odom** | `print_ascii_map` called with `local_odom_position` so robot marker is correct |
+| ASCII map robot position | **odom** | `write_ascii_map` called with `local_odom_position` so robot marker is correct |
 | Every-tick goal check (`_tick`) | **odom** | `dist(local_odom_position, goal_odom) < 2 m` → `validating_state` |
 | OA completion goal check | **odom** | Same distance check in `NewObstacleAvoidanceControllerState` |
 | PP steering (`local_odom_position`) | **odom** | `new_waypoints_odom` (TF2-converted) passed to PP; `drive_state.py` uses `local_odom_position` as `cur_pose` |

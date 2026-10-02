@@ -474,8 +474,8 @@ class GlobalMapManager:
 
         return None
 
-    def print_ascii_map(self, robot_x, robot_y, window=40, robot_radius_m=1.0, path_waypoints=None, goal=None):
-        """Writes a localized ASCII representation of the grid to a file for external viewing."""
+    def write_ascii_map(self, output_path, robot_x, robot_y, window=40, robot_radius_m=1.0, path_waypoints=None, goal=None):
+        """Writes a localized ASCII representation of the grid to output_path for external viewing."""
         if self.global_origin_x is None or self.global_origin_y is None:
             print("DEBUG: Global origin not set, cannot print map.")
             return
@@ -569,7 +569,7 @@ class GlobalMapManager:
             out_str += row_str + "\n"
 
         try:
-            with open("/tmp/rover_map.txt", "w") as f:
+            with open(output_path, "w") as f:
                 f.write(out_str)
-        except Exception:
-            pass
+        except OSError as e:
+            self.logger.warning(f"could not write ASCII map to {output_path}: {e}")
