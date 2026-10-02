@@ -46,7 +46,6 @@ class SharedData():
     cur_heading = None  # current orientation in radians counter clockwise as calculated from local odometry
     cur_speed = 0     # we'll get this from 'global_position/gp_vel', NOT SAME UNITS AS AUTON SPEED
     # store the backup position to go to if we fail to reach the target
-    go_home_position = None
     # [(x, y)] used to check if we are actually near the target
     position_history = deque(maxlen=HIST_POSE_LEN)
 

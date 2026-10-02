@@ -1,6 +1,7 @@
 import numpy as np
 from time import time
 from autonomous_state_machine.states.state_class import State
+from autonomous_state_machine.utils import replan_to_goal
 from geometry_msgs.msg import Twist
 import autonomous_state_machine.config as config
 
@@ -59,8 +60,9 @@ class ValidatingState(State):
 
                 if not self.shared_data.controller.did_reach_goal():
                     self.log("goal not confirmed at averaged position — re-planning → NewControllerState", logtype="warn")
-                    self.shared_data.new_waypoints = self.shared_data.new_waypoints[-1:]
-                    self.shared_data.new_waypoints.insert(0, self.shared_data.cur_position)
+                    if not replan_to_goal(self.shared_data, reason="goal not confirmed at averaged position"):
+                        self.log("cannot re-plan — stopping in StartState", logtype="error")
+                        return self.state_instance.start_state
                     return self.state_instance.new_controller_state
                 else:
                     self.log("goal confirmed — → GoalState")

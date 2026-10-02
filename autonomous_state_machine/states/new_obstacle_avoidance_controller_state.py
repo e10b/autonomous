@@ -4,6 +4,7 @@ from time import time
 import numpy as np
 from autonomous_state_machine.align import AlignAndMove
 import autonomous_state_machine.config as config
+from autonomous_state_machine.utils import replan_to_goal
 
 class NewObstacleAvoidanceControllerState(State):
     def __init__(self, shared_data, state_instance):
@@ -70,17 +71,6 @@ class NewObstacleAvoidanceControllerState(State):
         vel.linear.x = (-base_speed + -base_speed) / 2.0
         vel.angular.z = (-base_speed - (-base_speed)) / self.shared_data.TRACK_WIDTH
         self.shared_data.auton_publisher.publish(vel)
-
-    def _rebuild_main_controller_from_current_path(self):
-        # Set new_waypoints in map/GPS-NED frame; _convert_waypoints_to_odom() in _tick
-        # will TF2-convert them to odom before PurePursuit is re-initialized.
-        cur_position = self.shared_data.cur_position
-        goal_xy      = self.shared_data.goal_map_xy
-        if cur_position is None or goal_xy is None:
-            return False
-        self.shared_data.new_waypoints = [cur_position, goal_xy]
-        self.shared_data.new_waypoints_flag = True
-        return True
 
     def _goal_reached_transition(self):
         """If odom position is within 2m of goal_odom, perform cleanup and return
@@ -203,9 +193,8 @@ class NewObstacleAvoidanceControllerState(State):
                         self.log(f"all OA waypoints done — resuming {post_oa.__class__.__name__} "
                                  f"from waypoint {resume_idx} ({len(remaining)} remaining)")
                         return post_oa
-                    path_rebuilt = self._rebuild_main_controller_from_current_path()
-                    if path_rebuilt:
-                        self.log("all OA waypoints done, goal outside map — rebuilding PurePursuit path → NewControllerState")
+                    if replan_to_goal(self.shared_data, reason="obstacle avoidance complete"):
+                        self.log("all OA waypoints done — re-planning to goal → NewControllerState")
                         return self.state_instance.new_controller_state
                     self.log("all OA waypoints done, path rebuild failed — resuming DriveState", logtype="warn")
                     return self.state_instance.drive_state

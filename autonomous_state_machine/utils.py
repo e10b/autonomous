@@ -54,7 +54,6 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
             shared_data.logger.error("Required shared_data fields are not initialized. Exiting function.")
             return
 
-        shared_data.go_home_position = shared_data.cur_position
         shared_data.heartbeat_recovery_active = False
         start_pos = shared_data.cur_position  # capture before async gap
 
@@ -208,6 +207,51 @@ def reset_ar_data(shared_data: SharedData) -> None:
         shared_data.ar_cY2 = 0
         shared_data.ar_size2 = 0
         shared_data.ar_id2 = 0
+
+def replan_to_goal(shared_data: SharedData, reason: str) -> bool:
+    """
+    Queue a fresh path from the rover's current position to the current goal.
+
+    This is the single entry point for re-planning toward ``goal_map_xy``. It
+    does not build a controller itself; it hands off to the normal pipeline:
+
+      1. Sets ``new_waypoints = [cur_position, goal_map_xy]`` (map frame) and
+         raises ``new_waypoints_flag``.
+      2. On the next tick, ``_tick`` converts ``new_waypoints`` to odom
+         (``new_waypoints_odom``) and switches to ``NewControllerState``.
+      3. ``NewControllerState`` builds the controller selected by
+         ``config.CONTROLLER_TYPE`` and clears the flag.
+
+    The caller should return ``state_instance.new_controller_state`` when this
+    succeeds. The goal itself (``goal_map_xy`` / ``goal_odom``) is not changed.
+
+    Args:
+        shared_data: Shared state. The caller must already hold ``shared_data.mutex``.
+        reason: Short description of why we are re-planning, used in the log.
+
+    Returns:
+        True if a path was queued. False if the current position or goal is
+        unknown; an error is logged and shared state is left unchanged.
+
+    Raises:
+        RuntimeError: If called without holding ``shared_data.mutex``.
+    """
+    if not shared_data.mutex.locked():
+        raise RuntimeError("replan_to_goal() must be called while holding shared_data.mutex")
+
+    cur_position = shared_data.cur_position
+    goal = shared_data.goal_map_xy
+    if cur_position is None or goal is None:
+        shared_data.logger.error(
+            f"[replan_to_goal] cannot re-plan ({reason}): "
+            f"cur_position={cur_position}, goal_map_xy={goal}"
+        )
+        return False
+
+    shared_data.new_waypoints = [cur_position, goal]
+    shared_data.new_waypoints_flag = True
+    shared_data.logger.info(f"[replan_to_goal] {reason} — re-planning from {cur_position} to goal {goal}")
+    return True
 
 def on_heartbeat(msg, shared_data: SharedData) -> None:
     if not config.HEARTBEAT_ENABLED:
