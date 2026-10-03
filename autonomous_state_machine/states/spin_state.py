@@ -1,5 +1,7 @@
 from autonomous_state_machine.states.state_class import State
-import time
+from time import time
+from geometry_msgs.msg import Twist
+from autonomous_state_machine.utils import clamp
 
 class SpinState(State):
     def __init__(self, shared_data, state_instance):
@@ -8,37 +10,30 @@ class SpinState(State):
         self.state_instance = state_instance
 
     def on_enter(self):
-        print("Entering SpinState...")
+        self.log("ENTER — spinning to search for AR/object")
 
-        self.shared_data.mutex.acquire()
-        self.shared_data.start_time = time()
-        self.shared_data.start_heading = self.shared_data.cur_heading
-        self.shared_data.mutex.release()
+        with self.shared_data.mutex:
+            self.shared_data.start_time = time()
+            self.shared_data.start_heading = self.shared_data.cur_heading
 
     def step(self) -> State:
-        self.shared_data.mutex.acquire()
+        with self.shared_data.mutex:
+            self.log(f"spinning {round(time()-self.shared_data.start_time)}s")
+            left = clamp(-self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED) if hasattr(self.shared_data, 'MAX_AUTON_SPEED') else -self.shared_data.SPIN_SPEED
+            right = clamp(self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED) if hasattr(self.shared_data, 'MAX_AUTON_SPEED') else self.shared_data.SPIN_SPEED
+            vel = Twist()
+            vel.linear.x = (left + right) / 2.0
+            vel.angular.z = (right - left) / self.shared_data.TRACK_WIDTH
+            self.shared_data.auton_publisher.publish(vel)
 
-        print(f"spinning for {round(time()-self.shared_data.start_time)} seconds")
-        vel_msg = self.Float64MultiArray()
-        vel_msg.data = [-self.shared_data.SPIN_SPEED, self.shared_data.SPIN_SPEED]
-        self.shared_data.auton_publisher.publish(vel_msg)
+            if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
+                return self.state_instance.go_to_ar_state
 
-        if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
-            self.shared_data.mutex.release()
-            return self.shared_data.heartbeat_state
+            if self.shared_data.found_obj_flag and self.shared_data.should_look_for_obj:
+                return self.state_instance.go_to_obj_state
 
-        if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
-            self.shared_data.mutex.release()
-            return self.state_instance.go_to_ar_state
+            if time() - self.shared_data.start_time > 1 and \
+                abs(self.shared_data.cur_heading - self.shared_data.start_heading) < self.shared_data.SPIN_TOLERANCE:  # done with spinning
+                return self.state_instance.forward_spiral_state
 
-        if self.shared_data.found_obj_flag and self.shared_data.should_look_for_obj:
-            self.shared_data.mutex.release()
-            return self.state_instance.go_to_obj_state
-
-        if time() - self.shared_data.start_time > 1 and \
-            abs(self.shared_data.cur_heading - self.shared_data.start_heading) < self.shared_data.SPIN_TOLERANCE:  # done with spinning
-            self.shared_data.mutex.release()
-            return self.state_instance.forward_spiral_state
-
-        self.shared_data.mutex.release()
-        return self.state_instance.spin_state
+            return self.state_instance.spin_state

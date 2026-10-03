@@ -1,0 +1,124 @@
+import math
+from collections import deque
+from threading import Lock
+
+class SharedData():
+    ################ Constant section ################
+    
+
+    HIST_POSE_LEN = 5 # used to be 100 but decreased to 60 for time (either is arbitrary)
+    AUTON_SPEED = 1.5
+    AUTON_TURN_CONST = 0.75
+    MAX_AUTON_SPEED = 3
+    SPIN_SPEED = 1.0
+    STEERING_CONST = 4.5
+    TRACK_WIDTH = 1.53  # wheel separation; angular.z = (right - left) / TRACK_WIDTH
+    SPIRAL_RADIUS = 20
+    OBJ_SPIRAL_RADIUS = 11
+    SPIRAL_COILS = 4
+    OBJ_SPIRAL_COILS = 8
+    
+    LOCAL_ODOM_TOPIC  = "/autonomous/localization/odometry/local"
+
+    AR_TIMEOUT = 20
+    SPIRAL_TIMEOUT = 300
+    OBJ_SPIRAL_TIMEOUT = 300
+    AR_TOLERANCE = 0.067 # size of ar tag we want to see before we stop
+    OBJ_H_TOLERANCE = 0.08 # height of object we want to see before we stop
+    OBJ_W_TOLERANCE = 0.08 # width of object we want to see before we stop
+    SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
+    AUTON_TOPIC_NAME     = "/autonomous/drivetrain/command"
+    VELOCITY_TOPIC_NAME  = "/autonomous/localization/gps/vel"
+    AUTON_INPUT_TOPIC_NAME = "/autonomous/input"
+    ARTAG_TOPIC_NAME     = "/artag_position"
+    OBJECT_TOPIC_NAME    = "/object_position"
+    CUR_STATE_TOPIC_NAME = "/set_state"
+    AUTON_PATH_NAME      = "/auton_path_display"
+    LED_TOPIC_NAME       = "/led"
+    HEARTBEAT_TOPIC_NAME   = "/autonomous/heartbeat"
+    HEARTBEAT_RECOVERY_TOPIC_NAME = "/autonomous/heartbeat/in_recovery"
+
+    ################ One mutex to rule all the following vars ################
+    mutex = Lock()  # this is for the entire data class
+
+    ################ global variables ################
+    cur_position = None  # current position in x and y converted from gps intput
+    cur_heading = None  # current orientation in radians counter clockwise as calculated from local odometry
+    cur_speed = 0     # we'll get this from 'global_position/gp_vel', NOT SAME UNITS AS AUTON SPEED
+    # store the backup position to go to if we fail to reach the target
+    # [(x, y)] used to check if we are actually near the target
+    position_history = deque(maxlen=HIST_POSE_LEN)
+
+    odom_ready            = False
+    last_odom_time        = 0.0        # time() of the last local odom message; 0.0 = none yet
+    local_odom_position   = None       # (x, y) in odom frame
+    _prev_local_odom_pos  = None       # for delta distance accumulation
+    recal_distance_accumulator = 0.0   # meters traveled since last waypoint recalibration
+    needs_recalibration        = False  # set by odom callback; cleared by _tick after transform
+
+    goal_map_xy  = None   # final goal in map frame (from /fromLL); set when waypoints arrive
+    goal_odom    = None   # final goal in odom frame; set via TF2 when goal_dirty is True
+    goal_dirty   = False  # set True when goal_map_xy changes; cleared after TF2 transform
+
+    gps_converter = None   # given lat and long spits out x and y
+    new_waypoints_flag = False  # used as a synchronization flag
+    new_waypoints      = []     # all waypoints we need to hit to get to the target (map/GPS-NED frame)
+    new_waypoints_odom = []     # new_waypoints[1:] converted to odom frame; set by _convert_waypoints_to_odom()
+    counter             = 0     # see how many times it sees the object
+
+    should_look_for_obj = False  # self explanatory
+    should_look_for_ar  = False  # all should_look_for_ar values to synchronize with new_waypoints
+    found_ar_flag       = False  # if ar tag has been detected, can go to ar tag state
+    found_obj_flag      = False  # if object has been detect, can go to object state
+    latest_ar_found     = 0      # time stamp for latest ar tag found
+    latest_obj_found    = 0      # time stamp for latest object found
+
+    obj_cX             = 0      # central x position of detected object
+    obj_cY             = 0      # central y position of detected object
+    obj_width           = 0      # width of object
+    obj_height          = 0      # height of object
+    obj_id             = 0.0      # id value of object to distinguish mallet and bottle
+
+    new_obstacle_avoidance_waypoints_flag = False  # used as a synchronization flag
+    # all waypoints we need to hit to get to the target
+    obstacle_avoidance_new_waypoints = []
+    # obstacle avoidance has run and can avoid another obstacle
+    obstacle_avoidance_running = False
+    spiral_waypoints     = []   # full remaining spiral waypoint list (updated as spiral progresses)
+    spiral_resume_index  = 0    # index in spiral_waypoints of the OA target; set by _on_pointcloud
+    spiral_oa_resume     = False # True when returning from OA — on_enter uses remaining waypoints instead of regenerating
+    post_oa_state        = None # State to return to after OA completes; None = use default rebuild logic
+
+    ar_cX = 0      # central x position of detected ar tag
+    ar_cY = 0      # central y position of detected ar tag
+    ar_size = 0      # size of ar tag calculated by area
+    ar_id = 0      # id value of detected ar tag
+
+    ar_cX2 = 0      # central x position of detected ar tag 2
+    ar_cY2 = 0      # central y position of detected ar tag 2
+    ar_size2 = 0      # size of ar tag 2 calculated by area
+    ar_id2 = 0      # id value of detected ar tag 2
+
+    target_id          = 0      # id value of desired ar tag
+    target_id2         = 0.0    # id value of desired ar tag 2 for gate task
+    #in brandon's version it was 1
+    target_obj_id      = 1.0      # id value of desired object 1 = mallet 0 = bottle
+
+    controller    = None  # pure pursuit controller
+    start_time    = None  # time stamp of when a state was first entered
+    start_heading = None  # heading stamp to mark when we end spinning
+    obstacle_avoidance_controller = None
+
+    global_map           = None   # GlobalMapManager instance
+    last_oa_trigger_time = 0.0   # timestamp of last obstacle avoidance trigger
+    logger               = None
+
+    spiral_path_publisher        = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True
+    oa_path_publisher            = None  # nav_msgs/Path; set only when PUBLISH_COSTMAP=True
+    heartbeat_recovery_publisher = None  # std_msgs/Bool; heartbeat recovery status for frontend
+    llclient = None
+
+    last_heartbeat_time      = 0.0    # timestamp of last received heartbeat; 0 = never received
+    last_safe_position       = None   # (x, y) odom-frame position when heartbeat was last confirmed
+    heartbeat_recovery_active = False  # True while rover is returning to last safe position
+

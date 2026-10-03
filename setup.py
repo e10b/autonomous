@@ -14,7 +14,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
     ],
-    install_requires=['setuptools', 'pyproj', 'scipy', 'utm', 'numpy'],
+    install_requires=['setuptools', 'scipy', 'numpy'],
     zip_safe=True,
     maintainer='yonder',
     maintainer_email='arsureshkumar@ucsd.edu',
