@@ -26,10 +26,10 @@ class ForwardSpiralState(State):
                 self.shared_data.spiral_oa_resume = False
                 if self.shared_data.should_look_for_ar:
                     pts = get_spiral(self.shared_data.cur_position[0], self.shared_data.cur_position[1],
-                                        radius=self.shared_data.SPIRAL_RADIUS, coils=self.shared_data.SPIRAL_COILS, step=2, direction=1)
+                                        radius=config.SPIRAL_RADIUS, coils=config.SPIRAL_COILS, step=2, direction=1)
                 if self.shared_data.should_look_for_obj:
                     pts = get_spiral(self.shared_data.cur_position[0], self.shared_data.cur_position[1],
-                                        radius=self.shared_data.OBJ_SPIRAL_RADIUS, coils=self.shared_data.OBJ_SPIRAL_COILS, step=2, direction=1)
+                                        radius=config.OBJ_SPIRAL_RADIUS, coils=config.OBJ_SPIRAL_COILS, step=2, direction=1)
                 self.shared_data.spiral_waypoints = pts
                 self.log("ENTER — PurePursuit outward spiral search")
             end_ang = math.atan((pts[-1][1] - pts[-2][1]) /
@@ -93,10 +93,10 @@ class ForwardSpiralState(State):
             if self.shared_data.controller.did_reach_goal():
                 return self.state_instance.backward_spiral_state
 
-            if (self.shared_data.should_look_for_ar and (time() - self.shared_data.start_time > self.shared_data.SPIRAL_TIMEOUT)):  # Still looking but time's up - switch to backward
+            if (self.shared_data.should_look_for_ar and (time() - self.shared_data.start_time > config.SPIRAL_TIMEOUT)):  # Still looking but time's up - switch to backward
                 return self.state_instance.backward_spiral_state
 
-            if (self.shared_data.should_look_for_obj and (time() - self.shared_data.start_time > self.shared_data.OBJ_SPIRAL_TIMEOUT)):  # Still looking but time's up - switch to backward
+            if (self.shared_data.should_look_for_obj and (time() - self.shared_data.start_time > config.OBJ_SPIRAL_TIMEOUT)):  # Still looking but time's up - switch to backward
                 return self.state_instance.backward_spiral_state
 
             return self.state_instance.forward_spiral_state

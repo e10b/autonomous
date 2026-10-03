@@ -4,6 +4,7 @@ from scipy.interpolate import CubicSpline
 from scipy.integrate import quad
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
+import autonomous_state_machine.config as config
 
 
 class PurePursuit():
@@ -53,13 +54,13 @@ class PurePursuit():
     desired_ang = math.atan2(dy, dx)
     ang_diff = math.atan2(math.sin(desired_ang - heading), math.cos(desired_ang - heading))
 
-    max_steer = shared_data.AUTON_SPEED * 0.9
-    steering_output = clamp(shared_data.STEERING_CONST * ang_diff, -max_steer, max_steer)
+    max_steer = config.AUTON_SPEED * 0.9
+    steering_output = clamp(config.STEERING_CONST * ang_diff, -max_steer, max_steer)
 
-    left  = clamp(shared_data.AUTON_SPEED - steering_output, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
-    right = clamp(shared_data.AUTON_SPEED + steering_output, -shared_data.MAX_AUTON_SPEED, shared_data.MAX_AUTON_SPEED)
+    left  = clamp(config.AUTON_SPEED - steering_output, -config.MAX_AUTON_SPEED, config.MAX_AUTON_SPEED)
+    right = clamp(config.AUTON_SPEED + steering_output, -config.MAX_AUTON_SPEED, config.MAX_AUTON_SPEED)
     linear_velocity = (left + right) / 2.0
-    angular_velocity = (right - left) / shared_data.TRACK_WIDTH
+    angular_velocity = (right - left) / config.TRACK_WIDTH
     return linear_velocity, angular_velocity, self.did_reach_goal()
 
   def step(self, shared_data) -> bool:

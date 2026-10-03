@@ -20,14 +20,14 @@ class GoToARState(State):
         with self.shared_data.mutex:
 
             off_center = self.shared_data.ar_cX - 0.5
-            left = clamp(config.GO_TO_AR_DRIVE_SPEED + off_center * config.VISUAL_SERVO_GAIN, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            right = clamp(config.GO_TO_AR_DRIVE_SPEED - off_center * config.VISUAL_SERVO_GAIN, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            left = clamp(config.GO_TO_AR_DRIVE_SPEED + off_center * config.VISUAL_SERVO_GAIN, -config.MAX_AUTON_SPEED, config.MAX_AUTON_SPEED)
+            right = clamp(config.GO_TO_AR_DRIVE_SPEED - off_center * config.VISUAL_SERVO_GAIN, -config.MAX_AUTON_SPEED, config.MAX_AUTON_SPEED)
             vel = Twist()
             vel.linear.x = (left + right) / 2.0
-            vel.angular.z = (right - left) / self.shared_data.TRACK_WIDTH
+            vel.angular.z = (right - left) / config.TRACK_WIDTH
             self.shared_data.auton_publisher.publish(vel)
 
-            if abs(self.shared_data.ar_size) > self.shared_data.AR_TOLERANCE:
+            if abs(self.shared_data.ar_size) > config.AR_TOLERANCE:
                 stop = Twist()
                 stop.linear.x = 0.0
                 stop.angular.z = 0.0
@@ -35,7 +35,7 @@ class GoToARState(State):
                 self.shared_data.found_ar_flag = False
                 return self.state_instance.goal_state
 
-            if time() - self.shared_data.start_time > self.shared_data.AR_TIMEOUT:
+            if time() - self.shared_data.start_time > config.AR_TIMEOUT:
                 return self.state_instance.spin_state
 
             return self.state_instance.go_to_ar_state

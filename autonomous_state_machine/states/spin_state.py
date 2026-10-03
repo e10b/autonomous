@@ -2,6 +2,7 @@ from autonomous_state_machine.states.state_class import State
 from time import time
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
+import autonomous_state_machine.config as config
 
 class SpinState(State):
     def __init__(self, shared_data, state_instance):
@@ -19,11 +20,11 @@ class SpinState(State):
     def step(self) -> State:
         with self.shared_data.mutex:
             self.log(f"spinning {round(time()-self.shared_data.start_time)}s")
-            left = clamp(-self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED) if hasattr(self.shared_data, 'MAX_AUTON_SPEED') else -self.shared_data.SPIN_SPEED
-            right = clamp(self.shared_data.SPIN_SPEED, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED) if hasattr(self.shared_data, 'MAX_AUTON_SPEED') else self.shared_data.SPIN_SPEED
+            left = clamp(-config.SPIN_SPEED, -config.MAX_AUTON_SPEED, config.MAX_AUTON_SPEED)
+            right = clamp(config.SPIN_SPEED, -config.MAX_AUTON_SPEED, config.MAX_AUTON_SPEED)
             vel = Twist()
             vel.linear.x = (left + right) / 2.0
-            vel.angular.z = (right - left) / self.shared_data.TRACK_WIDTH
+            vel.angular.z = (right - left) / config.TRACK_WIDTH
             self.shared_data.auton_publisher.publish(vel)
 
             if self.shared_data.found_ar_flag and self.shared_data.should_look_for_ar:
@@ -33,7 +34,7 @@ class SpinState(State):
                 return self.state_instance.go_to_obj_state
 
             if time() - self.shared_data.start_time > 1 and \
-                abs(self.shared_data.cur_heading - self.shared_data.start_heading) < self.shared_data.SPIN_TOLERANCE:  # done with spinning
+                abs(self.shared_data.cur_heading - self.shared_data.start_heading) < config.SPIN_TOLERANCE:  # done with spinning
                 return self.state_instance.forward_spiral_state
 
             return self.state_instance.spin_state

@@ -4,6 +4,7 @@ import math
 from autonomous_state_machine.pp import PurePursuit
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.states.state_class import State
+import autonomous_state_machine.config as config
 
 class BackwardSpiralState(State):
     def __init__(self, shared_data, state_instance):
@@ -24,10 +25,10 @@ class BackwardSpiralState(State):
                 self.shared_data.spiral_oa_resume = False
                 if self.shared_data.should_look_for_ar:
                     pts = get_spiral(self.shared_data.cur_position[0], self.shared_data.cur_position[1],
-                                        radius=self.shared_data.SPIRAL_RADIUS, coils=self.shared_data.SPIRAL_COILS, step=2, direction=-1)
+                                        radius=config.SPIRAL_RADIUS, coils=config.SPIRAL_COILS, step=2, direction=-1)
                 if self.shared_data.should_look_for_obj:
                     pts = get_spiral(self.shared_data.cur_position[0], self.shared_data.cur_position[1],
-                                        radius=self.shared_data.OBJ_SPIRAL_RADIUS, coils=self.shared_data.OBJ_SPIRAL_COILS, step=2, direction=-1)
+                                        radius=config.OBJ_SPIRAL_RADIUS, coils=config.OBJ_SPIRAL_COILS, step=2, direction=-1)
                 pts = pts[3:]
                 self.shared_data.spiral_waypoints = pts
                 self.log("ENTER — PurePursuit inward spiral search")
@@ -60,11 +61,11 @@ class BackwardSpiralState(State):
             if self.shared_data.controller.did_reach_goal():
                 return self.state_instance.backward_spiral_state
 
-            if (self.shared_data.should_look_for_ar and (time() - self.shared_data.start_time > self.shared_data.SPIRAL_TIMEOUT)):  # done with spiraling
+            if (self.shared_data.should_look_for_ar and (time() - self.shared_data.start_time > config.SPIRAL_TIMEOUT)):  # done with spiraling
                 self.log("Timeout reached during backward spiral — → RetryState")
                 return self.state_instance.retry_state
 
-            if (self.shared_data.should_look_for_obj and (time() - self.shared_data.start_time > self.shared_data.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
+            if (self.shared_data.should_look_for_obj and (time() - self.shared_data.start_time > config.OBJ_SPIRAL_TIMEOUT)):  # done with spiraling
                 self.log("Timeout reached during backward spiral — → RetryState")
                 return self.state_instance.retry_state
 

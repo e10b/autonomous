@@ -2,6 +2,7 @@ import math
 import rclpy.logging
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
+import autonomous_state_machine.config as config
 
 # Per-tick diagnostics are logged at DEBUG, at most once per this many seconds per call site.
 TICK_LOG_THROTTLE_SEC = 1.0
@@ -80,14 +81,14 @@ class AlignAndMove():
 
         # Align phase: rotate in place until heading error is small.
         ANG_THRESHOLD = 0.05 # 2.8 degrees
-        TURN_SPEED = shared_data.AUTON_TURN_CONST * shared_data.AUTON_SPEED
+        TURN_SPEED = config.AUTON_TURN_CONST * config.AUTON_SPEED
 
         if self.phase == "align":
             if abs(ang_diff) > ANG_THRESHOLD:
                 # Turn in place: left negative, right positive for left turn
                 raw_turn = clamp(ang_diff, -1.0, 1.0) * TURN_SPEED
                 # Ensure turn command exceeds motor deadzone by enforcing a minimum
-                MIN_TURN_SPEED = 0.2 * shared_data.AUTON_SPEED
+                MIN_TURN_SPEED = 0.2 * config.AUTON_SPEED
                 if abs(raw_turn) < MIN_TURN_SPEED:
                     enforced = math.copysign(MIN_TURN_SPEED, raw_turn)
                     self.logger.debug(
@@ -97,11 +98,11 @@ class AlignAndMove():
                 else:
                     turn = raw_turn
                 self.linear_velocity = 0.0
-                self.angular_velocity = (2.0 * turn) / shared_data.TRACK_WIDTH
+                self.angular_velocity = (2.0 * turn) / config.TRACK_WIDTH
                 self.angular_velocity = clamp(
                     self.angular_velocity,
-                    -shared_data.MAX_AUTON_SPEED,
-                    shared_data.MAX_AUTON_SPEED,
+                    -config.MAX_AUTON_SPEED,
+                    config.MAX_AUTON_SPEED,
                 )
                 self.logger.debug(
                     f"[AlignAndMove] TURNING: ang_diff={ang_diff:.3f} rad -> linear={self.linear_velocity:.2f}, angular={self.angular_velocity:.2f}",
@@ -117,9 +118,9 @@ class AlignAndMove():
 
         # Move phase: drive straight toward target (no steering).
         self.linear_velocity = clamp(
-            shared_data.AUTON_SPEED,
-            -shared_data.MAX_AUTON_SPEED,
-            shared_data.MAX_AUTON_SPEED,
+            config.AUTON_SPEED,
+            -config.MAX_AUTON_SPEED,
+            config.MAX_AUTON_SPEED,
         )
         self.angular_velocity = 0.0
         self.logger.debug(
