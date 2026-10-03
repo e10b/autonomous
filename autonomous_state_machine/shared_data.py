@@ -24,7 +24,9 @@ class SharedData():
     mutex = Lock()  # this is for the entire data class
 
     ################ global variables ################
-    cur_position = None  # current position in x and y converted from gps intput
+    cur_position = None  # current position in x and y, odom frame (same value as
+                          # local_odom_position; overwritten with an odom-frame average
+                          # of position_history by ValidatingState)
     cur_heading = None  # current orientation in radians counter clockwise as calculated from local odometry
     cur_speed = 0     # we'll get this from 'global_position/gp_vel', NOT SAME UNITS AS AUTON SPEED
     # store the backup position to go to if we fail to reach the target
@@ -44,8 +46,9 @@ class SharedData():
 
     gps_converter = None   # given lat and long spits out x and y
     new_waypoints_flag = False  # used as a synchronization flag
-    new_waypoints      = []     # all waypoints we need to hit to get to the target (map/GPS-NED frame)
-    new_waypoints_odom = []     # new_waypoints[1:] converted to odom frame; set by _convert_waypoints_to_odom()
+    new_waypoints      = []     # goal waypoint(s) only, map frame (no current-position placeholder)
+    new_waypoints_odom = []     # [current odom position] + new_waypoints converted to odom frame;
+                                 # set by _convert_waypoints_to_odom()
     counter             = 0     # see how many times it sees the object
 
     should_look_for_obj = False  # self explanatory

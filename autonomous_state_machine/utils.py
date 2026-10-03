@@ -55,7 +55,6 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
             return
 
         shared_data.heartbeat_recovery_active = False
-        start_pos = shared_data.cur_position  # capture before async gap
 
         shared_data.logger.info(f"Auton input object_id: {auton_input.object_id}")
         shared_data.should_look_for_ar = auton_input.object_id > 3
@@ -96,7 +95,7 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
             map_pt = resp.map_point
             goal_pos = (map_pt.x, map_pt.y)
             with shared_data.mutex:
-                shared_data.new_waypoints = [start_pos, goal_pos]
+                shared_data.new_waypoints = [goal_pos]
                 shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
                 shared_data.goal_map_xy = goal_pos
                 shared_data.goal_dirty  = True
@@ -193,8 +192,10 @@ def replan_to_goal(shared_data: SharedData, reason: str) -> bool:
     This is the single entry point for re-planning toward ``goal_map_xy``. It
     does not build a controller itself; it hands off to the normal pipeline:
 
-      1. Sets ``new_waypoints = [cur_position, goal_map_xy]`` (map frame) and
-         raises ``new_waypoints_flag``.
+      1. Sets ``new_waypoints = [goal_map_xy]`` (map frame) and raises
+         ``new_waypoints_flag``. The rover's current position doesn't need to
+         be stored here — ``_tick``'s conversion to odom frame always prepends
+         the live ``local_odom_position`` as the path's start point.
       2. On the next tick, ``_tick`` converts ``new_waypoints`` to odom
          (``new_waypoints_odom``) and switches to ``NewControllerState``.
       3. ``NewControllerState`` builds the controller selected by
@@ -217,7 +218,7 @@ def replan_to_goal(shared_data: SharedData, reason: str) -> bool:
     if not shared_data.mutex.locked():
         raise RuntimeError("replan_to_goal() must be called while holding shared_data.mutex")
 
-    cur_position = shared_data.cur_position
+    cur_position = shared_data.cur_position  # readiness check only; not stored (see docstring)
     goal = shared_data.goal_map_xy
     if cur_position is None or goal is None:
         shared_data.logger.error(
@@ -226,7 +227,7 @@ def replan_to_goal(shared_data: SharedData, reason: str) -> bool:
         )
         return False
 
-    shared_data.new_waypoints = [cur_position, goal]
+    shared_data.new_waypoints = [goal]
     shared_data.new_waypoints_flag = True
     shared_data.logger.info(f"[replan_to_goal] {reason} — re-planning from {cur_position} to goal {goal}")
     return True

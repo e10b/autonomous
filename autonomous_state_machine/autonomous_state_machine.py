@@ -2,7 +2,7 @@
 
 """http://wiki.ros.org/mavros for topic ref"""
 
-from autonomous_state_machine.utils import on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_new_local_odom_msg, on_heartbeat
+from autonomous_state_machine.utils import on_receive_new_auton_input, on_new_velocity_msg, found_ar_tag, found_object, on_new_local_odom_msg, on_heartbeat, replan_to_goal
 import numpy as np
 from scipy import ndimage
 import rclpy
@@ -128,6 +128,12 @@ class AutonomousStateMachine(Node):
         return np.stack([x[valid], y[valid], z[valid]], axis=1)
 
     def _transform_goal_to_odom(self, x_map: float, y_map: float):
+        """Look up the map→odom TF and transform a map-frame point into odom frame.
+
+        Returns None (instead of a guessed fallback) when the TF2 lookup fails, so
+        callers can retry on the next tick rather than silently treating map
+        coordinates as odom coordinates.
+        """
         pt = PointStamped()
         pt.header.frame_id = 'map'
         pt.header.stamp = rclpy.time.Time().to_msg()  # zero stamp = latest TF
@@ -135,23 +141,33 @@ class AutonomousStateMachine(Node):
         pt.point.y = float(y_map)
         try:
             t = self._tf_buffer.lookup_transform('odom', 'map', rclpy.time.Time())
-            out = tf2_geometry_msgs.do_transform_point(pt, t)
-            self.get_logger().info(f"[TF] map→odom goal: ({out.point.x:.2f}, {out.point.y:.2f})")
-            return (out.point.x, out.point.y)
-        except Exception:
-            self.get_logger().warn("[TF] map→odom transform failed — using map coords as odom fallback")
-            return (x_map, y_map)  # fallback: in sim map≡odom so values are identical
+        except Exception as exc:
+            self.get_logger().warn(
+                f"[TF] map→odom transform unavailable ({exc}) — will retry", throttle_duration_sec=1.0)
+            return None
+        out = tf2_geometry_msgs.do_transform_point(pt, t)
+        self.get_logger().info(f"[TF] map→odom goal: ({out.point.x:.2f}, {out.point.y:.2f})")
+        return (out.point.x, out.point.y)
 
-    def _convert_waypoints_to_odom(self):
-        """Convert new_waypoints (map/GPS-NED frame) to odom frame and store in new_waypoints_odom."""
+    def _convert_waypoints_to_odom(self) -> bool:
+        """Convert new_waypoints (map frame) to odom frame and store in new_waypoints_odom.
+
+        Returns True once new_waypoints_odom was fully rebuilt. Returns False — leaving
+        the previous new_waypoints_odom untouched — if local odometry isn't available yet
+        or if any waypoint's TF2 lookup fails, so the caller can retry on the next tick
+        instead of acting on a stale/partial path.
+        """
         odom_pos = self.shared_data.local_odom_position
         if odom_pos is None:
-            return
+            return False
         odom_wps = [odom_pos]   # [0] is always the current odom position
-        for wp in self.shared_data.new_waypoints[1:]:
+        for wp in self.shared_data.new_waypoints:
             converted = self._transform_goal_to_odom(wp[0], wp[1])
+            if converted is None:
+                return False
             odom_wps.append(converted)
         self.shared_data.new_waypoints_odom = odom_wps
+        return True
 
     def _on_pointcloud(self, msg: PointCloud2):
         pos = self.shared_data.local_odom_position
@@ -361,15 +377,32 @@ class AutonomousStateMachine(Node):
 
         old_state = self.cur_state.__class__.__name__
 
-        # Re-transform goal to odom only when new waypoints arrived (dirty flag = O(1))
+        # Re-transform goal to odom only when new waypoints arrived (dirty flag = O(1)).
+        # Only clear goal_dirty once the transform actually succeeds — otherwise retry
+        # next tick rather than leaving goal_odom stuck on a bad/guessed value.
         if self.shared_data.goal_map_xy is not None and self.shared_data.goal_dirty:
-            self.shared_data.goal_odom = self._transform_goal_to_odom(*self.shared_data.goal_map_xy)
-            self.shared_data.goal_dirty = False
+            goal_odom = self._transform_goal_to_odom(*self.shared_data.goal_map_xy)
+            if goal_odom is not None:
+                self.shared_data.goal_odom = goal_odom
+                self.shared_data.goal_dirty = False
 
-        if self.shared_data.needs_recalibration and self.shared_data.new_waypoints:
-            self._convert_waypoints_to_odom()
-            self.shared_data.needs_recalibration = False
-            self.get_logger().info(f"Refreshed odom-frame waypoints after {config.RECALIBRATION_DISTANCE}m travel")
+        # Recalibration: re-plan (not just refresh shared state) so the *live* controller
+        # actually picks up the correction — PurePursuit/AlignAndMove bake their path at
+        # construction time and never re-read new_waypoints_odom after that. Only while
+        # actively driving toward a GPS goal (not spiral/OA/heartbeat-recovery), and only
+        # if a replan isn't already pending.
+        if (self.shared_data.needs_recalibration
+                and self.shared_data.new_waypoints
+                and not self.shared_data.new_waypoints_flag
+                and self.cur_state is self.state_instance.drive_state):
+            with self.shared_data.mutex:
+                if replan_to_goal(self.shared_data,
+                                   reason=f"recalibration after {config.RECALIBRATION_DISTANCE}m travel"):
+                    # Re-derive goal_odom from the same fresh TF the replan will use.
+                    self.shared_data.goal_dirty = True
+                    self.shared_data.needs_recalibration = False
+                    self.shared_data.recal_distance_accumulator = 0.0
+                # else: replan_to_goal already logged why; retry next tick.
 
         # Every-tick goal detection in odom frame (mirrors Navigation::remain() in C++)
         if self.cur_state is self.state_instance.drive_state:
@@ -417,10 +450,13 @@ class AutonomousStateMachine(Node):
                 self.cur_state = self.state_instance.heartbeat_state
 
         if self.shared_data.new_waypoints_flag:
-            self._convert_waypoints_to_odom()
-            self.shared_data.recal_distance_accumulator = 0.0
-            self.shared_data.needs_recalibration = False
-            self.cur_state = self.state_instance.new_controller_state
+            # Only advance to NewControllerState once the odom-frame path was actually
+            # rebuilt — if the TF2 lookup failed this tick, stay put and retry next tick
+            # instead of letting NewControllerState build a controller from a stale path.
+            if self._convert_waypoints_to_odom():
+                self.shared_data.recal_distance_accumulator = 0.0
+                self.shared_data.needs_recalibration = False
+                self.cur_state = self.state_instance.new_controller_state
 
         if (self.shared_data.new_obstacle_avoidance_waypoints_flag
                 and not self.shared_data.obstacle_avoidance_running
