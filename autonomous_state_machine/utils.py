@@ -110,6 +110,9 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
 
 def found_ar_tag(msg: Float64MultiArray, shared_data: SharedData) -> None:
     # msg.data = [cX, cY, size, id]; only the detected id decides whether this is our target
+    if len(msg.data) != 4:
+        shared_data.logger.warn(f"Ignoring malformed AR tag message (expected 4 values, got {len(msg.data)}): {list(msg.data)}")
+        return
     detected_id = int(msg.data[-1])
     with shared_data.mutex:
         shared_data.logger.info(f"Received AR tag message: {msg.data}")
@@ -152,21 +155,22 @@ def convert_arr_to_waypoint_list(arr: list[float]) -> list[tuple[float, float]]:
 
 
 def found_object(msg: Float64MultiArray, shared_data: SharedData) -> None:
-    # Acquire the mutex to ensure thread-safe access to shared_data
-    shared_data.mutex.acquire()
-    shared_data.logger.info(f"Seeing object id: {msg.data[-1]}, Looking for: {shared_data.target_obj_id}")
-    # Check if the detected object matches the target object ID
-    if shared_data.target_obj_id == msg.data[-1]:
-        [shared_data.obj_cX, shared_data.obj_cY,
-        shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
-        shared_data.counter += 1
-        shared_data.logger.info(f"Found object we were looking for with id: {msg.data[-1]}")
-        # If the object has been detected at least twice, set the found flag
-        if shared_data.counter >= 2:
-            shared_data.found_obj_flag = True
-        shared_data.latest_obj_found = time()
-    # Release the mutex after updating shared_data
-    shared_data.mutex.release()
+    # msg.data = [cX, cY, width, height, id]
+    if len(msg.data) != 5:
+        shared_data.logger.warn(f"Ignoring malformed object message (expected 5 values, got {len(msg.data)}): {list(msg.data)}")
+        return
+    with shared_data.mutex:
+        shared_data.logger.info(f"Seeing object id: {msg.data[-1]}, Looking for: {shared_data.target_obj_id}")
+        # Check if the detected object matches the target object ID
+        if shared_data.target_obj_id == msg.data[-1]:
+            [shared_data.obj_cX, shared_data.obj_cY,
+            shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
+            shared_data.counter += 1
+            shared_data.logger.info(f"Found object we were looking for with id: {msg.data[-1]}")
+            # If the object has been detected at least twice, set the found flag
+            if shared_data.counter >= 2:
+                shared_data.found_obj_flag = True
+            shared_data.latest_obj_found = time()
 
 def clamp(num: float, minNum: float, maxNum: float) -> float:
     # Clamp the number between minNum and maxNum

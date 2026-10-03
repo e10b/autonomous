@@ -1,6 +1,8 @@
 from threading import Lock
 from types import SimpleNamespace
 
+import pytest
+
 from std_msgs.msg import Float64MultiArray
 
 from autonomous_state_machine import utils
@@ -12,6 +14,9 @@ class FakeLogger:
 
     def info(self, msg, **kwargs):
         self.messages.append(("info", msg))
+
+    def warn(self, msg, **kwargs):
+        self.messages.append(("warn", msg))
 
 
 def make_shared_data(target_id=0):
@@ -60,3 +65,13 @@ def test_mutex_released_after_callback():
     for tag_id in (1, 3):
         utils.found_ar_tag(ar_msg(0.5, 0.5, 0.01, tag_id), sd)
         assert not sd.mutex.locked()
+
+
+@pytest.mark.parametrize("data", [[], [0.5, 0.5, 0.0], [0.5, 0.5, 0.01, 0.0, 9.0]])
+def test_malformed_message_is_ignored_and_mutex_released(data):
+    sd = make_shared_data(target_id=0)
+    utils.found_ar_tag(Float64MultiArray(data=data), sd)
+    assert not sd.mutex.locked()
+    assert sd.found_ar_flag is False
+    assert (sd.ar_cX, sd.ar_cY, sd.ar_size, sd.ar_id) == (0, 0, 0, 0)
+    assert [level for level, _ in sd.logger.messages] == ["warn"]
