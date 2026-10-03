@@ -109,37 +109,20 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
     future.add_done_callback(_fromll_done)
 
 def found_ar_tag(msg: Float64MultiArray, shared_data: SharedData) -> None:
-    # Acquire the mutex to ensure thread-safe access to shared_data
-    shared_data.mutex.acquire()
-    shared_data.logger.info(f"Received AR tag message: {msg.data}")
-
-    # Check if the detected AR tag matches the primary target ID
+    # msg.data = [cX, cY, size, id]; only the detected id decides whether this is our target
     detected_id = int(msg.data[-1])
-    if int(shared_data.target_id) == detected_id:
+    with shared_data.mutex:
+        shared_data.logger.info(f"Received AR tag message: {msg.data}")
+
+        if detected_id != int(shared_data.target_id):
+            shared_data.logger.info(f"AR tag id {detected_id} does not match target {int(shared_data.target_id)}.")
+            return
+
         [shared_data.ar_cX, shared_data.ar_cY,
         shared_data.ar_size, shared_data.ar_id] = msg.data
         shared_data.found_ar_flag = True
         shared_data.latest_ar_found = time()
-        shared_data.logger.info(f"Found primary AR tag: id={shared_data.ar_id}, cX={shared_data.ar_cX}, cY={shared_data.ar_cY}, size={shared_data.ar_size}")
-
-    # Check if the detected AR tag matches the secondary target ID
-    if hasattr(shared_data, 'target_id2') and int(shared_data.target_id2) == int(msg.data[3]):
-        [shared_data.ar_cX2, shared_data.ar_cY2,
-        shared_data.ar_size2, shared_data.ar_id2] = msg.data
-        shared_data.logger.info(f"Found secondary AR tag: id2={shared_data.ar_id2}, cX2={shared_data.ar_cX2}, cY2={shared_data.ar_cY2}, size2={shared_data.ar_size2}")
-
-    # If the found AR tag does not match the primary target, release mutex and exit
-    if int(shared_data.ar_id) != int(shared_data.target_id):
-        shared_data.logger.info("AR tag ID does not match target. Exiting function.")
-        shared_data.mutex.release()
-        return
-
-    # Set flag indicating AR tag was found
-    shared_data.found_ar_flag = True
-    shared_data.logger.info("AR tag found flag set to True.")
-
-    # Release the mutex after updating shared_data
-    shared_data.mutex.release()
+        shared_data.logger.info(f"Found AR tag: id={shared_data.ar_id}, cX={shared_data.ar_cX}, cY={shared_data.ar_cY}, size={shared_data.ar_size}")
 
 def rotate_and_translate_2d(x: float, y: float, pos_x: float, pos_y: float, heading: float) -> tuple[float, float]:
     """
@@ -198,11 +181,6 @@ def reset_ar_data(shared_data: SharedData) -> None:
         shared_data.ar_cY = 0
         shared_data.ar_size = 0
         shared_data.ar_id = 0
-
-        shared_data.ar_cX2 = 0
-        shared_data.ar_cY2 = 0
-        shared_data.ar_size2 = 0
-        shared_data.ar_id2 = 0
 
 def replan_to_goal(shared_data: SharedData, reason: str) -> bool:
     """

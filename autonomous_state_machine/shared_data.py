@@ -76,13 +76,7 @@ class SharedData():
     ar_size = 0      # size of ar tag calculated by area
     ar_id = 0      # id value of detected ar tag
 
-    ar_cX2 = 0      # central x position of detected ar tag 2
-    ar_cY2 = 0      # central y position of detected ar tag 2
-    ar_size2 = 0      # size of ar tag 2 calculated by area
-    ar_id2 = 0      # id value of detected ar tag 2
-
     target_id          = 0      # id value of desired ar tag
-    target_id2         = 0.0    # id value of desired ar tag 2 for gate task
     #in brandon's version it was 1
     target_obj_id      = 1.0      # id value of desired object 1 = mallet 0 = bottle
 
