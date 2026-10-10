@@ -9,6 +9,7 @@ and the scoreboard counts it against you. These two functions are the building
 blocks for "is my current plan still good, and where along it am I?".
 """
 
+import math
 from typing import Sequence
 
 from grid_utils import Grid, Point
@@ -24,8 +25,11 @@ def next_waypoint_index(path_xy: Sequence[Point], rover_xy: Point) -> int:
 
     Ties: return the lower index. `path_xy` is never empty when this is called.
     """
-    # TODO: implement
-    raise NotImplementedError("next_waypoint_index")
+    return min(
+        range(len(path_xy)),
+        key=lambda i: math.hypot(path_xy[i][0] - rover_xy[0],
+                                 path_xy[i][1] - rover_xy[1]),
+    )
 
 
 def path_is_valid(grid: Grid, path_xy: Sequence[Point], start_index: int = 0) -> bool:
@@ -45,5 +49,10 @@ def path_is_valid(grid: Grid, path_xy: Sequence[Point], start_index: int = 0) ->
     only means something relative to one particular grid. Points in the world
     keep their meaning when the grid changes.
     """
-    # TODO: implement
-    raise NotImplementedError("path_is_valid")
+    if not path_xy:
+        return False
+    for x, y in path_xy[start_index:]:
+        row, col = grid.world_to_cell(x, y)
+        if not grid.in_bounds(row, col) or grid.is_occupied(row, col):
+            return False
+    return True

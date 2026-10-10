@@ -38,6 +38,7 @@ from sim.messages import GridSnapshot, make_path_msg
 from nav_msgs.msg import Path
 
 from grid_utils import Grid, inflate, path_length_m
+from sim.grid_values import OCCUPIED
 from search import astar
 from replan import next_waypoint_index, path_is_valid
 
@@ -71,6 +72,14 @@ class PlannerNode(Node):
         # self.grid_sub = self.create_subscription(
         #     GridSnapshot, "/grid_feed", self.on_grid, ???
         # )
+        feed_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            depth=1,
+        )
+        self.grid_sub = self.create_subscription(
+            GridSnapshot, "/grid_feed", self.on_grid, feed_qos
+        )
 
         # ------------------------------------------------------------------
         # Publisher
@@ -78,6 +87,7 @@ class PlannerNode(Node):
         # TODO: Create a publisher for /planned_path (message type: Path).
         #
         # self.path_pub = self.create_publisher(Path, "/planned_path", 10)
+        self.path_pub = self.create_publisher(Path, "/planned_path", 10)
 
         # ------------------------------------------------------------------
         # State — add whatever you need
@@ -86,6 +96,9 @@ class PlannerNode(Node):
         self.plan_count = 0          # how many plans you have published (initial one included)
         self.replan_count = 0        # how many of those replaced an existing plan
         self.last_replan_stamp = None  # sim time of the most recent replan, or None
+        self.last_status_stamp = None
+        self._last_no_route_blocked = None
+        self._pending_status_reason = None
 
     # -----------------------------------------------------------------------
     # The callback: runs once per tick
@@ -107,8 +120,43 @@ class PlannerNode(Node):
         Step 3 is the heart of the task: replan when the plan is invalidated,
         and not otherwise. The scoreboard tells you how you did.
         """
-        # TODO: implement
-        raise NotImplementedError("PlannerNode.on_grid")
+        grid = inflate(Grid.from_msg(msg), msg.robot_radius_m)
+        self._block_unsafe_edge_cells(grid, msg.robot_radius_m)
+        rover_xy = (msg.rover_x, msg.rover_y)
+        goal_xy = (msg.goal_x, msg.goal_y)
+        should_plan, reason = self.needs_replan(grid, rover_xy)
+
+        if should_plan:
+            replacing_path = bool(self.path_xy)
+            self.path_xy = self.plan(grid, rover_xy, goal_xy)
+            self.publish_path(self.path_xy, msg.header.stamp)
+            self.plan_count += 1
+            if replacing_path:
+                self.replan_count += 1
+                self.last_replan_stamp = msg.header.stamp
+            self._last_no_route_blocked = (
+                frozenset(i for i, value in enumerate(grid.occupancy) if value == OCCUPIED)
+                if not self.path_xy else None
+            )
+            self._pending_status_reason = reason
+
+        self.print_status(msg.header.stamp)
+
+    @staticmethod
+    def _block_unsafe_edge_cells(grid: Grid, radius_m: float) -> None:
+        """Treat the map boundary as a wall with the same clearance as obstacles."""
+        for row in range(grid.height):
+            for col in range(grid.width):
+                x_clearance = min(
+                    (col + 0.5) * grid.resolution,
+                    (grid.width - col - 0.5) * grid.resolution,
+                )
+                y_clearance = min(
+                    (row + 0.5) * grid.resolution,
+                    (grid.height - row - 0.5) * grid.resolution,
+                )
+                if min(x_clearance, y_clearance) < radius_m - 1e-12:
+                    grid.occupancy[grid.index(row, col)] = OCCUPIED
 
     def needs_replan(self, grid: Grid, rover_xy) -> tuple:
         """
@@ -126,8 +174,22 @@ class PlannerNode(Node):
         Return a short reason like "path blocked ahead" — it goes in your monitoring
         output and makes debugging a hundred times easier.
         """
-        # TODO: implement
-        raise NotImplementedError("PlannerNode.needs_replan")
+        if self.path_xy is None:
+            return True, "initial plan"
+        if not self.path_xy:
+            # Unknown cells are already traversable, so only clearing something
+            # that was blocked can make an impossible route possible. New
+            # obstacles elsewhere are not a reason to republish another stop.
+            route_may_have_opened = any(
+                grid.occupancy[i] != OCCUPIED for i in self._last_no_route_blocked
+            )
+            return ((True, "blocked cell cleared") if route_may_have_opened
+                    else (False, "no route unchanged"))
+
+        current = next_waypoint_index(self.path_xy, rover_xy)
+        if not path_is_valid(grid, self.path_xy, current):
+            return True, "path blocked ahead"
+        return False, "path still valid"
 
     def plan(self, grid: Grid, rover_xy, goal_xy):
         """
@@ -136,8 +198,12 @@ class PlannerNode(Node):
 
         Convert world -> cell, call astar, convert the cells back to world points.
         """
-        # TODO: implement
-        raise NotImplementedError("PlannerNode.plan")
+        start = grid.world_to_cell(*rover_xy)
+        goal = grid.world_to_cell(*goal_xy)
+        cells = astar(grid, start, goal, unknown_is_free=True)
+        if cells is None:
+            return []
+        return [grid.cell_to_world(*cell) for cell in cells]
 
     def publish_path(self, points_xy, stamp: float) -> None:
         """Publish a list of (x, y) world points as nav_msgs/Path. (provided)"""
@@ -160,5 +226,16 @@ class PlannerNode(Node):
         `stamp` is SIMULATION time in seconds (msg.header.stamp). The sim can run
         much faster than real time, so time.time() would give nonsense here.
         """
-        # TODO: implement
-        raise NotImplementedError("PlannerNode.print_status")
+        due = self.last_status_stamp is None or stamp - self.last_status_stamp >= 1.0 - 1e-9
+        if self._pending_status_reason is None and not due:
+            return
+
+        length = path_length_m(self.path_xy or [])
+        since = "n/a" if self.last_replan_stamp is None else f"{stamp - self.last_replan_stamp:.1f}s"
+        reason = f" reason={self._pending_status_reason}" if self._pending_status_reason else ""
+        self.get_logger().info(
+            f"t={stamp:.1f}s path={length:.1f}m replans={self.replan_count} "
+            f"since_replan={since}{reason}"
+        )
+        self.last_status_stamp = stamp
+        self._pending_status_reason = None

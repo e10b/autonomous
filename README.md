@@ -364,18 +364,70 @@ We don't expect a perfect implementation. Those who show genuine effort and lear
 
 ## Your write-up
 
-*Candidates: replace this section with your own short write-up. Keep it to what a teammate would need to trust your implementation. Numbers from your own runs beat adjectives.*
+### Prediction and observed behavior
 
-- **Prediction.** Before running `boulders`: how many replans did you expect, and why? What did you get?
-- **Heuristic.** Which one, and why is it safe for an 8-connected grid? What goes wrong with one that overestimates? (Try it. What did you see?)
-- **Replan trigger.** Exactly what makes you replan? What deliberately does *not*? Paste your `python sim/launch.py --all` table.
-- **Unknown cells.** How does your planner treat them, and why? What happens on the very first tick under the other choice?
-- **Rover size.** How do you account for it? What happens to the run if you don't?
-- **No route.** What do you publish when there is no path, and what would go wrong if you published nothing?
-- **Time.** Which clock does your monitoring output use, and why?
-- **Ambiguity.** What did the task leave underspecified, and what call did you make?
-- **Testing.** What did you check beyond the provided tests? Which scenario or picture revealed a bug of yours?
-- **Stretch goals.** Which did you attempt, and how far did you get? (For Part 2A: what changed between your Part 1 planner and your final one, in numbers?)
+I did not record a boulders prediction before the first run, so I cannot honestly
+claim a pre-run number. The observed result was 3 replans. They happened as
+previously unknown obstacles entered sensor range and invalidated the remaining
+route. In future I would commit the prediction before executing the scenario, as
+the exercise requests.
+
+### Planning choices
+
+- **Heuristic:** octile distance: `sqrt(2) * min(dr, dc) + abs(dr - dc)`.
+  This is the exact unobstructed cost for an 8-connected grid with unit axial
+  moves and `sqrt(2)` diagonal moves, so it is admissible and consistent. An
+  overestimating heuristic can pop the goal before a cheaper detour has been
+  explored, losing A*'s shortest-path guarantee.
+- **Replan trigger:** plan once initially; afterward, locate the waypoint closest
+  to the rover and validate only that waypoint and those ahead against the latest
+  inflated grid. Replan if one is now occupied or out of bounds. Obstacles behind
+  the rover and changes away from the remaining path deliberately do nothing. If
+  no route exists, retry only after a cell that was blocked for the failed search
+  has cleared.
+- **Unknown cells:** treat them as traversable. On the first tick, most of the
+  arena—including the distant goal—is unknown. Treating unknown as blocked would
+  prevent an initial route and leave the rover unable to explore.
+- **Rover size:** inflate observed obstacles by the 0.5 m planning radius, and
+  separately mark cell centres too close to the arena boundary. Without this,
+  a point-valid path can put the rover body into a boulder or wall.
+- **No route:** publish an empty `Path`, which explicitly tells the follower to
+  stop. Publishing nothing would leave the previous unsafe path active.
+- **Time:** monitoring uses `GridSnapshot.header.stamp`, the simulated clock.
+  Wall-clock time is unrelated because a headless run executes faster than real
+  time.
+- **Ambiguity:** circular inflation was chosen over square inflation because it
+  models the disc-shaped rover without blocking diagonal cells beyond the stated
+  radius. The edge-wall rule is enforced in the node rather than `inflate`, whose
+  tested contract is to grow explicit occupied cells only.
+
+### Results
+
+`python3 sim/launch.py --all` on macOS 15.6.1 with Python 3.14.5:
+
+```text
+scenario      result           ticks  blocked  plans  replans  needless
+-----------------------------------------------------------------------
+open          REACHED            121        0      1        0         0
+boulders      REACHED            126        0      4        3         0
+wall          REACHED            135        0     14       13         0
+popup         REACHED            129        0      5        4         0
+goal-blocked  REACHED            164        0      4        2         0
+random 1      REACHED            137        0     10        9         0
+random 2      REACHED            131        0     10        9         0
+random 3      REACHED            139        0      6        5         0
+```
+
+Beyond the 49 provided unit tests and the standard `--all` run, I ran random
+seeds 4 through 20. All 17 reached the goal with zero blocked ticks and zero
+needless replans; completion ranged from 126 to 152 ticks. Unit testing exposed
+one design mistake: putting boundary-wall behavior inside `inflate` violated the
+helper's contract by changing otherwise unrelated edge cells. Moving that rule
+to the planner kept both the pure helper and the rover behavior correct.
+
+No stretch goal was attempted; the submitted implementation focuses on a fully
+verified Part 1 planner. In noisy mode, raw occupied readings would still cause
+phantom replans, so confidence-aware filtering is the clearest next step.
 
 ---
 
