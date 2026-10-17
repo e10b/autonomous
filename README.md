@@ -39,12 +39,12 @@ The `map → odom` transform is a static identity in simulation (published by `r
 | OA waypoints (Theta\* output) | **odom** | Passed to `AlignAndMove`; compared with `local_odom_position` in `align.py` |
 | `goal_odom` | **odom** | GPS goal transformed via TF2 `map → odom`; stored in `SharedData.goal_odom` |
 | `goal_map_xy` | **map** (GPS/NED) | Output of the `robot_localization` `/fromLL` service |
-| `cur_position` | **map** (GPS/NED) | Used only for GPS display; not used in navigation decisions |
+| `cur_position` | **odom** | Same value as `local_odom_position` (set by the same odom callback), later overwritten with an odom-frame average of `position_history` by `ValidatingState`; used as the spiral search center in `forward_spiral_state.py`/`backward_spiral_state.py` and as a readiness check in `replan_to_goal`/`on_receive_new_auton_input` |
 | ASCII map robot position | **odom** | `write_ascii_map` called with `local_odom_position` so robot marker is correct |
 | Every-tick goal check (`_tick`) | **odom** | `dist(local_odom_position, goal_odom) < 2 m` → `validating_state` |
 | OA completion goal check | **odom** | Same distance check in `NewObstacleAvoidanceControllerState` |
 | PP steering (`local_odom_position`) | **odom** | `new_waypoints_odom` (TF2-converted) passed to PP; `drive_state.py` uses `local_odom_position` as `cur_pose` |
-| `new_waypoints_odom` | **odom** | TF2 map→odom conversion of `new_waypoints[1:]`; set by `_convert_waypoints_to_odom()` in `_tick` |
+| `new_waypoints_odom` | **odom** | `[local_odom_position]` + TF2 map→odom conversion of `new_waypoints` (goal point(s) only); set by `_convert_waypoints_to_odom()` in `_tick` |
 
 ### Goal Transform Pipeline
 

@@ -1,4 +1,3 @@
-import math
 from collections import deque
 from threading import Lock
 
@@ -7,26 +6,9 @@ class SharedData():
     
 
     HIST_POSE_LEN = 5 # used to be 100 but decreased to 60 for time (either is arbitrary)
-    AUTON_SPEED = 1.5
-    AUTON_TURN_CONST = 0.75
-    MAX_AUTON_SPEED = 3
-    SPIN_SPEED = 1.0
-    STEERING_CONST = 4.5
-    TRACK_WIDTH = 1.53  # wheel separation; angular.z = (right - left) / TRACK_WIDTH
-    SPIRAL_RADIUS = 20
-    OBJ_SPIRAL_RADIUS = 11
-    SPIRAL_COILS = 4
-    OBJ_SPIRAL_COILS = 8
     
     LOCAL_ODOM_TOPIC  = "/autonomous/localization/odometry/local"
 
-    AR_TIMEOUT = 20
-    SPIRAL_TIMEOUT = 300
-    OBJ_SPIRAL_TIMEOUT = 300
-    AR_TOLERANCE = 0.067 # size of ar tag we want to see before we stop
-    OBJ_H_TOLERANCE = 0.08 # height of object we want to see before we stop
-    OBJ_W_TOLERANCE = 0.08 # width of object we want to see before we stop
-    SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
     AUTON_TOPIC_NAME     = "/autonomous/drivetrain/command"
     VELOCITY_TOPIC_NAME  = "/autonomous/localization/gps/vel"
     AUTON_INPUT_TOPIC_NAME = "/autonomous/input"
@@ -42,7 +24,9 @@ class SharedData():
     mutex = Lock()  # this is for the entire data class
 
     ################ global variables ################
-    cur_position = None  # current position in x and y converted from gps intput
+    cur_position = None  # current position in x and y, odom frame (same value as
+                          # local_odom_position; overwritten with an odom-frame average
+                          # of position_history by ValidatingState)
     cur_heading = None  # current orientation in radians counter clockwise as calculated from local odometry
     cur_speed = 0     # we'll get this from 'global_position/gp_vel', NOT SAME UNITS AS AUTON SPEED
     # store the backup position to go to if we fail to reach the target
@@ -62,8 +46,9 @@ class SharedData():
 
     gps_converter = None   # given lat and long spits out x and y
     new_waypoints_flag = False  # used as a synchronization flag
-    new_waypoints      = []     # all waypoints we need to hit to get to the target (map/GPS-NED frame)
-    new_waypoints_odom = []     # new_waypoints[1:] converted to odom frame; set by _convert_waypoints_to_odom()
+    new_waypoints      = []     # goal waypoint(s) only, map frame (no current-position placeholder)
+    new_waypoints_odom = []     # [current odom position] + new_waypoints converted to odom frame;
+                                 # set by _convert_waypoints_to_odom()
     counter             = 0     # see how many times it sees the object
 
     should_look_for_obj = False  # self explanatory
@@ -94,13 +79,7 @@ class SharedData():
     ar_size = 0      # size of ar tag calculated by area
     ar_id = 0      # id value of detected ar tag
 
-    ar_cX2 = 0      # central x position of detected ar tag 2
-    ar_cY2 = 0      # central y position of detected ar tag 2
-    ar_size2 = 0      # size of ar tag 2 calculated by area
-    ar_id2 = 0      # id value of detected ar tag 2
-
     target_id          = 0      # id value of desired ar tag
-    target_id2         = 0.0    # id value of desired ar tag 2 for gate task
     #in brandon's version it was 1
     target_obj_id      = 1.0      # id value of desired object 1 = mallet 0 = bottle
 

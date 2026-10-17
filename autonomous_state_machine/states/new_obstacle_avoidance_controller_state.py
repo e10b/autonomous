@@ -65,11 +65,11 @@ class NewObstacleAvoidanceControllerState(State):
         self.shared_data.auton_publisher.publish(vel)
 
     def _publish_reverse(self):
-        base_speed = self.shared_data.AUTON_SPEED
+        base_speed = config.AUTON_SPEED
         # Convert equal negative wheel speeds into linear/ angular twist
         vel = Twist()
         vel.linear.x = (-base_speed + -base_speed) / 2.0
-        vel.angular.z = (-base_speed - (-base_speed)) / self.shared_data.TRACK_WIDTH
+        vel.angular.z = (-base_speed - (-base_speed)) / config.TRACK_WIDTH
         self.shared_data.auton_publisher.publish(vel)
 
     def _reset_oa_state(self):

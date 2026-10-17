@@ -19,18 +19,18 @@ class GoToObjectState(State):
     def step(self) -> State:
         with self.shared_data.mutex:
             off_center = self.shared_data.obj_cX - 0.5
-            left = clamp(config.GO_TO_OBJ_DRIVE_SPEED + off_center * config.VISUAL_SERVO_GAIN, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
-            right = clamp(config.GO_TO_OBJ_DRIVE_SPEED - off_center * config.VISUAL_SERVO_GAIN, -self.shared_data.MAX_AUTON_SPEED, self.shared_data.MAX_AUTON_SPEED)
+            left = clamp(config.GO_TO_OBJ_DRIVE_SPEED + off_center * config.VISUAL_SERVO_GAIN, -config.MAX_AUTON_SPEED, config.MAX_AUTON_SPEED)
+            right = clamp(config.GO_TO_OBJ_DRIVE_SPEED - off_center * config.VISUAL_SERVO_GAIN, -config.MAX_AUTON_SPEED, config.MAX_AUTON_SPEED)
             vel = Twist()
             vel.linear.x = (left + right) / 2.0
-            vel.angular.z = (right - left) / self.shared_data.TRACK_WIDTH
+            vel.angular.z = (right - left) / config.TRACK_WIDTH
             self.shared_data.auton_publisher.publish(vel)  # check if we need different publisher here, ADD
 
             # if not self.shared_data.go_to_heartbeat and self.shared_data.last_heartbeat - time() > self.shared_data.HEARTBEAT_TIMEOUT:
             #     return self.shared_data.heartbeat_state
 
             # Decide if the object is close enough to stop
-            if self.shared_data.obj_width > self.shared_data.OBJ_W_TOLERANCE or self.shared_data.obj_height > self.shared_data.OBJ_H_TOLERANCE:
+            if self.shared_data.obj_width > config.OBJ_W_TOLERANCE or self.shared_data.obj_height > config.OBJ_H_TOLERANCE:
                 stop = Twist()
                 stop.linear.x = 0.0
                 stop.angular.z = 0.0

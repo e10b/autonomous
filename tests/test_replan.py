@@ -46,7 +46,7 @@ def test_replan_to_goal_queues_path_from_current_position():
     sd = make_shared_data()
     with sd.mutex:
         assert utils.replan_to_goal(sd, reason="test") is True
-    assert sd.new_waypoints == [(1.0, 2.0), (10.0, 20.0)]
+    assert sd.new_waypoints == [(10.0, 20.0)]
     assert sd.new_waypoints_flag is True
 
 
@@ -70,7 +70,7 @@ def test_retry_state_returns_to_goal_and_ends_search():
     sd = make_shared_data()
     state = RetryState(sd, make_state_instance())
     assert state.step() == "new_controller_state"
-    assert sd.new_waypoints == [(1.0, 2.0), (10.0, 20.0)]
+    assert sd.new_waypoints == [(10.0, 20.0)]
     assert sd.new_waypoints_flag is True
     assert sd.should_look_for_ar is False
     assert sd.should_look_for_obj is False

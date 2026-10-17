@@ -1,4 +1,30 @@
 # Configuration Parameters for Autonomous State Machine
+import math
+
+# Drive speeds / steering
+AUTON_SPEED = 1.5
+AUTON_TURN_CONST = 0.75
+MAX_AUTON_SPEED = 3
+SPIN_SPEED = 1.0
+STEERING_CONST = 4.5
+TRACK_WIDTH = 1.53  # wheel separation; angular.z = (right - left) / TRACK_WIDTH
+
+# Spiral search geometry
+SPIRAL_RADIUS = 20
+OBJ_SPIRAL_RADIUS = 11
+SPIRAL_COILS = 4
+OBJ_SPIRAL_COILS = 8
+
+# State timeouts (seconds)
+AR_TIMEOUT = 20
+SPIRAL_TIMEOUT = 300
+OBJ_SPIRAL_TIMEOUT = 300
+
+# Arrival / spin tolerances
+AR_TOLERANCE = 0.067 # size of ar tag we want to see before we stop
+OBJ_H_TOLERANCE = 0.08 # height of object we want to see before we stop
+OBJ_W_TOLERANCE = 0.08 # width of object we want to see before we stop
+SPIN_TOLERANCE = math.pi / 10.0 # Tolerance for checking if cur angle is within desired angle
 
 # Global Map Parameters
 PERSISTENT_GRID_SIZE = 30 # 30m minimum for sim rollover testing

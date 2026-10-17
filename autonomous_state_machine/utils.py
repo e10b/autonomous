@@ -55,7 +55,6 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
             return
 
         shared_data.heartbeat_recovery_active = False
-        start_pos = shared_data.cur_position  # capture before async gap
 
         shared_data.logger.info(f"Auton input object_id: {auton_input.object_id}")
         shared_data.should_look_for_ar = auton_input.object_id > 3
@@ -96,7 +95,7 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
             map_pt = resp.map_point
             goal_pos = (map_pt.x, map_pt.y)
             with shared_data.mutex:
-                shared_data.new_waypoints = [start_pos, goal_pos]
+                shared_data.new_waypoints = [goal_pos]
                 shared_data.logger.info(f"New waypoints: {shared_data.new_waypoints}")
                 shared_data.goal_map_xy = goal_pos
                 shared_data.goal_dirty  = True
@@ -109,37 +108,23 @@ def on_receive_new_auton_input(auton_input: AutonInput, shared_data: SharedData)
     future.add_done_callback(_fromll_done)
 
 def found_ar_tag(msg: Float64MultiArray, shared_data: SharedData) -> None:
-    # Acquire the mutex to ensure thread-safe access to shared_data
-    shared_data.mutex.acquire()
-    shared_data.logger.info(f"Received AR tag message: {msg.data}")
-
-    # Check if the detected AR tag matches the primary target ID
+    # msg.data = [cX, cY, size, id]; only the detected id decides whether this is our target
+    if len(msg.data) != 4:
+        shared_data.logger.warn(f"Ignoring malformed AR tag message (expected 4 values, got {len(msg.data)}): {list(msg.data)}")
+        return
     detected_id = int(msg.data[-1])
-    if int(shared_data.target_id) == detected_id:
+    with shared_data.mutex:
+        shared_data.logger.info(f"Received AR tag message: {msg.data}")
+
+        if detected_id != int(shared_data.target_id):
+            shared_data.logger.info(f"AR tag id {detected_id} does not match target {int(shared_data.target_id)}.")
+            return
+
         [shared_data.ar_cX, shared_data.ar_cY,
         shared_data.ar_size, shared_data.ar_id] = msg.data
         shared_data.found_ar_flag = True
         shared_data.latest_ar_found = time()
-        shared_data.logger.info(f"Found primary AR tag: id={shared_data.ar_id}, cX={shared_data.ar_cX}, cY={shared_data.ar_cY}, size={shared_data.ar_size}")
-
-    # Check if the detected AR tag matches the secondary target ID
-    if hasattr(shared_data, 'target_id2') and int(shared_data.target_id2) == int(msg.data[3]):
-        [shared_data.ar_cX2, shared_data.ar_cY2,
-        shared_data.ar_size2, shared_data.ar_id2] = msg.data
-        shared_data.logger.info(f"Found secondary AR tag: id2={shared_data.ar_id2}, cX2={shared_data.ar_cX2}, cY2={shared_data.ar_cY2}, size2={shared_data.ar_size2}")
-
-    # If the found AR tag does not match the primary target, release mutex and exit
-    if int(shared_data.ar_id) != int(shared_data.target_id):
-        shared_data.logger.info("AR tag ID does not match target. Exiting function.")
-        shared_data.mutex.release()
-        return
-
-    # Set flag indicating AR tag was found
-    shared_data.found_ar_flag = True
-    shared_data.logger.info("AR tag found flag set to True.")
-
-    # Release the mutex after updating shared_data
-    shared_data.mutex.release()
+        shared_data.logger.info(f"Found AR tag: id={shared_data.ar_id}, cX={shared_data.ar_cX}, cY={shared_data.ar_cY}, size={shared_data.ar_size}")
 
 def rotate_and_translate_2d(x: float, y: float, pos_x: float, pos_y: float, heading: float) -> tuple[float, float]:
     """
@@ -169,21 +154,22 @@ def convert_arr_to_waypoint_list(arr: list[float]) -> list[tuple[float, float]]:
 
 
 def found_object(msg: Float64MultiArray, shared_data: SharedData) -> None:
-    # Acquire the mutex to ensure thread-safe access to shared_data
-    shared_data.mutex.acquire()
-    shared_data.logger.info(f"Seeing object id: {msg.data[-1]}, Looking for: {shared_data.target_obj_id}")
-    # Check if the detected object matches the target object ID
-    if shared_data.target_obj_id == msg.data[-1]:
-        [shared_data.obj_cX, shared_data.obj_cY,
-        shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
-        shared_data.counter += 1
-        shared_data.logger.info(f"Found object we were looking for with id: {msg.data[-1]}")
-        # If the object has been detected at least twice, set the found flag
-        if shared_data.counter >= 2:
-            shared_data.found_obj_flag = True
-        shared_data.latest_obj_found = time()
-    # Release the mutex after updating shared_data
-    shared_data.mutex.release()
+    # msg.data = [cX, cY, width, height, id]
+    if len(msg.data) != 5:
+        shared_data.logger.warn(f"Ignoring malformed object message (expected 5 values, got {len(msg.data)}): {list(msg.data)}")
+        return
+    with shared_data.mutex:
+        shared_data.logger.info(f"Seeing object id: {msg.data[-1]}, Looking for: {shared_data.target_obj_id}")
+        # Check if the detected object matches the target object ID
+        if shared_data.target_obj_id == msg.data[-1]:
+            [shared_data.obj_cX, shared_data.obj_cY,
+            shared_data.obj_width, shared_data.obj_height, shared_data.obj_id] = msg.data
+            shared_data.counter += 1
+            shared_data.logger.info(f"Found object we were looking for with id: {msg.data[-1]}")
+            # If the object has been detected at least twice, set the found flag
+            if shared_data.counter >= 2:
+                shared_data.found_obj_flag = True
+            shared_data.latest_obj_found = time()
 
 def clamp(num: float, minNum: float, maxNum: float) -> float:
     # Clamp the number between minNum and maxNum
@@ -199,11 +185,6 @@ def reset_ar_data(shared_data: SharedData) -> None:
         shared_data.ar_size = 0
         shared_data.ar_id = 0
 
-        shared_data.ar_cX2 = 0
-        shared_data.ar_cY2 = 0
-        shared_data.ar_size2 = 0
-        shared_data.ar_id2 = 0
-
 def replan_to_goal(shared_data: SharedData, reason: str) -> bool:
     """
     Queue a fresh path from the rover's current position to the current goal.
@@ -211,8 +192,10 @@ def replan_to_goal(shared_data: SharedData, reason: str) -> bool:
     This is the single entry point for re-planning toward ``goal_map_xy``. It
     does not build a controller itself; it hands off to the normal pipeline:
 
-      1. Sets ``new_waypoints = [cur_position, goal_map_xy]`` (map frame) and
-         raises ``new_waypoints_flag``.
+      1. Sets ``new_waypoints = [goal_map_xy]`` (map frame) and raises
+         ``new_waypoints_flag``. The rover's current position doesn't need to
+         be stored here — ``_tick``'s conversion to odom frame always prepends
+         the live ``local_odom_position`` as the path's start point.
       2. On the next tick, ``_tick`` converts ``new_waypoints`` to odom
          (``new_waypoints_odom``) and switches to ``NewControllerState``.
       3. ``NewControllerState`` builds the controller selected by
@@ -235,7 +218,7 @@ def replan_to_goal(shared_data: SharedData, reason: str) -> bool:
     if not shared_data.mutex.locked():
         raise RuntimeError("replan_to_goal() must be called while holding shared_data.mutex")
 
-    cur_position = shared_data.cur_position
+    cur_position = shared_data.cur_position  # readiness check only; not stored (see docstring)
     goal = shared_data.goal_map_xy
     if cur_position is None or goal is None:
         shared_data.logger.error(
@@ -244,7 +227,7 @@ def replan_to_goal(shared_data: SharedData, reason: str) -> bool:
         )
         return False
 
-    shared_data.new_waypoints = [cur_position, goal]
+    shared_data.new_waypoints = [goal]
     shared_data.new_waypoints_flag = True
     shared_data.logger.info(f"[replan_to_goal] {reason} — re-planning from {cur_position} to goal {goal}")
     return True
