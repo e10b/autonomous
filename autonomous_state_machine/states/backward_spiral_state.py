@@ -1,4 +1,4 @@
-from time import time
+from autonomous_state_machine.mission_clock import time
 from autonomous_state_machine.spiral_generation import get_spiral
 import math
 from autonomous_state_machine.pp import PurePursuit

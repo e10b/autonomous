@@ -116,13 +116,17 @@ class AlignAndMove():
             self.angular_velocity = 0.0
             return self.linear_velocity, self.angular_velocity, False
 
-        # Move phase: drive straight toward target (no steering).
+        # Correct drift during a segment; stop and realign before a large turn.
+        if abs(ang_diff) > 0.15:
+            self.phase = "align"
+            self.linear_velocity = self.angular_velocity = 0.0
+            return 0.0, 0.0, False
         self.linear_velocity = clamp(
             config.AUTON_SPEED,
             -config.MAX_AUTON_SPEED,
             config.MAX_AUTON_SPEED,
         )
-        self.angular_velocity = 0.0
+        self.angular_velocity = clamp(2.0 * ang_diff, -0.4, 0.4)
         self.logger.debug(
             f"[AlignAndMove] MOVING: dist={distance:.3f}m -> linear={self.linear_velocity:.2f}, angular={self.angular_velocity:.2f}",
             throttle_duration_sec=TICK_LOG_THROTTLE_SEC)

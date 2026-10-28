@@ -1,5 +1,6 @@
 # Configuration Parameters for Autonomous State Machine
 import math
+import os
 
 # Drive speeds / steering
 AUTON_SPEED = 1.5
@@ -35,20 +36,27 @@ GRID_CELL_SIZE = 0.10
 # Debugging
 WRITE_ASCII_MAP = True                  # write an ASCII view of the global map once per second
 ASCII_MAP_PATH = "/tmp/rover_map.txt"   # view with: watch -n 0.5 cat /tmp/rover_map.txt
-PUBLISH_COSTMAP = False  # publish global map as nav_msgs/OccupancyGrid for Foxglove
+PUBLISH_COSTMAP = os.getenv("YONDER_PUBLISH_COSTMAP", "0") == "1"
 
 # Simulation Flag: Turns off degradation for sim, turns it on for real
-SIMULATION = False
+SIMULATION = os.getenv("YONDER_SIMULATION", "0") == "1"
+
+if SIMULATION:
+    PUBLISH_COSTMAP = True
 
 # Navigation controller used by NewControllerState: "pure_pursuit" or "align"
 CONTROLLER_TYPE = "pure_pursuit"
 
 # Odometry watchdog: stop the rover and pause the state machine if no local odom for this long (seconds)
 ODOM_TIMEOUT = 0.5
+if SIMULATION:
+    # Webots can briefly stall while its GUI renders or loses foreground time.
+    # Hardware keeps the strict competition watchdog above.
+    ODOM_TIMEOUT = 2.0
 
 # Goal arrival: within this distance (meters) of the goal counts as reached. Shared by the
 # every-tick check in _tick, the OA state, and PurePursuit's tolerance so they always agree.
-GOAL_REACHED_RADIUS_M = 2.0
+GOAL_REACHED_RADIUS_M = 0.60
 
 # Detection timeouts: clear found_ar_flag / found_obj_flag after this long (seconds) without a detection
 AR_LOST_TIMEOUT = 2.0
@@ -83,7 +91,19 @@ PC_HEIGHT_MIN = -1.5       # meters below camera — ignore points above this
 PC_HEIGHT_MAX = 1.5       # meters below camera — ignore ground plane below this
 PC_MIN_POINTS_PER_CELL = 700 # minimum point count in a cell to mark it as occupied
 if SIMULATION:
-    PC_MIN_POINTS_PER_CELL = 1  # in sim, we trust the pointcloud more — any points in a cell mark it occupied
+    # Observe the course before committing to long segments through unknown cells.
+    PC_LOCAL_GRID_CELLS = 80
+    # A single range return is not enough evidence for an obstacle.  Webots also
+    # returns the floor very cleanly, so accepting one point makes the entire
+    # corridor oscillate between blocked/free as the rover moves.
+    PC_HEIGHT_MIN = float(os.getenv("YONDER_SIM_PC_HEIGHT_MIN", "-0.50"))
+    PC_HEIGHT_MAX = float(os.getenv("YONDER_SIM_PC_HEIGHT_MAX", "0.75"))
+    PC_MIN_POINTS_PER_CELL = int(
+        os.getenv("YONDER_SIM_PC_MIN_POINTS_PER_CELL", "3")
+    )
+    # Half the 1.53 m wheel track plus margin for tires and depth projection.
+    OA_ROBOT_RADIUS_M = float(os.getenv("YONDER_SIM_ROBOT_RADIUS_M", "0.80"))
+    BACKUP_DURATION = float(os.getenv("YONDER_SIM_BACKUP_DURATION", "0.0"))
 
 # Confidence Parameters
 CONFIDENCE_THRESHOLD = 60

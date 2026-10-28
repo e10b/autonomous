@@ -17,7 +17,7 @@ from geometry_msgs.msg import TwistStamped, PointStamped, Twist, PoseStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path
 from std_msgs.msg import Float64MultiArray, String, Bool
 from sensor_msgs.msg import PointCloud2
-from time import time
+from autonomous_state_machine.mission_clock import time, bind_clock
 from autonomous_state_machine.global_map import GlobalMapManager
 
 from autonomous_state_machine.states.state_class import StateInstance
@@ -52,6 +52,7 @@ _OA_INTERRUPTIBLE = frozenset({
 class AutonomousStateMachine(Node):
     def __init__(self):
         super().__init__("autonomous_state_machine")
+        bind_clock(self.get_clock() if config.SIMULATION else None)
         self.get_logger().info("Starting autonomous state machine node...")
 
         self.shared_data = SharedData()  # the global state object
@@ -188,7 +189,7 @@ class AutonomousStateMachine(Node):
         cam_x, cam_y, cam_z = pts[:, 0], pts[:, 1], pts[:, 2]
 
         # OAK-D optical frame: x=right, y=down, z=forward.
-        # Keep only points in the obstacle height band and within the 2m forward grid.
+        # Keep only points in the obstacle height band and configured forward grid.
         mask = (
             (cam_y >= config.PC_HEIGHT_MIN) & (cam_y <= config.PC_HEIGHT_MAX) &
             (cam_z >= 0.0)                 & (cam_z < CELLS * CELL)          &
@@ -204,27 +205,38 @@ class AutonomousStateMachine(Node):
         np.add.at(point_count, (xi, zi), 1)
         local_grid = (point_count >= config.PC_MIN_POINTS_PER_CELL).astype(np.uint8)
 
-        self.shared_data.global_map.update_map(local_grid, pos[0], pos[1], yaw)
-
-        cx  = CELLS // 2
-        top = max(0, cx - config.OA_CORRIDOR_HALF_CELLS)
-        bot = min(CELLS, cx + config.OA_CORRIDOR_HALF_CELLS + 1)
-        corridor_grid = local_grid[top:bot, :]
-        if not corridor_grid.any():
-            return
-
-        largest_obstacle = self._largest_connected_obstacle_size(corridor_grid)
-        if largest_obstacle < config.MIN_OBSTACLE_SIZE:
-            return
+        # The optical origin sits ahead of the chassis in the simulation PROTO.
+        offset = 0.3 if config.SIMULATION else 0.0
+        self.shared_data.global_map.update_map(
+            local_grid, pos[0] + offset * np.cos(yaw),
+            pos[1] + offset * np.sin(yaw), yaw)
 
         with self.shared_data.mutex:
-            if time() - self.shared_data.last_oa_trigger_time < config.OA_COOLDOWN_EXTRA + config.BACKUP_DURATION:
+            running = self.shared_data.obstacle_avoidance_running
+            if self.cur_state.__class__.__name__ not in _OA_INTERRUPTIBLE and not running:
                 return
+            if time() - self.shared_data.last_path_check_time < 0.25:
+                return
+            self.shared_data.last_path_check_time = time()
             if not self.shared_data.odom_ready or not self.shared_data.new_waypoints:
                 return
             goal = self.shared_data.goal_odom
             if goal is None:
                 return
+
+            controller = self.shared_data.obstacle_avoidance_controller if running else None
+            if controller is not None:
+                remaining = list(controller.user_unreached_pts)
+                route = [pos] + remaining
+            else:
+                route = [pos, goal]
+            if self.shared_data.global_map.path_is_clear(route, config.OA_ROBOT_RADIUS_M):
+                self.shared_data.navigation_blocked = False
+                return
+            # Check *remaining* path segments even while following an OA route.
+            # A failed replan must never leave the old drive command active.
+            self.shared_data.navigation_blocked = True
+            self.publish_stop()
 
             spiral_states = (self.state_instance.forward_spiral_state, self.state_instance.backward_spiral_state)
             if self.shared_data.post_oa_state in spiral_states:
@@ -265,12 +277,11 @@ class AutonomousStateMachine(Node):
 
             path = self.shared_data.global_map.get_path(pos[0], pos[1], goal[0], goal[1], robot_radius_m=config.OA_ROBOT_RADIUS_M)
             if not path:
-                self.get_logger().warn("[OA] Corridor blocked but Theta* returned no path — map may not be ready yet")
+                self.get_logger().warn(
+                    "[OA] Route blocked; no safe path — holding stopped",
+                    throttle_duration_sec=2.0)
                 return
-            if self.shared_data.obstacle_avoidance_running:
-                self.get_logger().info("[OA] Reattempt — replacing active OA waypoints with fresher path")
-                self.shared_data.obstacle_avoidance_new_waypoints = []
-                self.shared_data.new_obstacle_avoidance_waypoints_flag = False
+            self.shared_data.navigation_blocked = False
             self.shared_data.obstacle_avoidance_new_waypoints = path
             self.shared_data.new_obstacle_avoidance_waypoints_flag = True
             self.shared_data.last_oa_trigger_time = time()
@@ -471,7 +482,10 @@ class AutonomousStateMachine(Node):
             self.cur_state.on_enter()
         else:
             self.last_state = self.cur_state
-            self.cur_state = self.cur_state.step()
+            if getattr(self.shared_data, "navigation_blocked", False):
+                self.publish_stop()
+            else:
+                self.cur_state = self.cur_state.step()
 
         if time() - self.shared_data.latest_ar_found > config.AR_LOST_TIMEOUT:
             self.shared_data.found_ar_flag = False

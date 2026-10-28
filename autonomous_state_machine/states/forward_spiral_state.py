@@ -3,7 +3,7 @@ from autonomous_state_machine.spiral_generation import get_spiral
 from autonomous_state_machine.pp import PurePursuit
 from geometry_msgs.msg import Twist, PoseStamped
 from nav_msgs.msg import Path
-from time import time
+from autonomous_state_machine.mission_clock import time
 import math
 import autonomous_state_machine.config as config
 

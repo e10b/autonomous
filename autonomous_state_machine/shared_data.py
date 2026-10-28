@@ -69,6 +69,8 @@ class SharedData():
     obstacle_avoidance_new_waypoints = []
     # obstacle avoidance has run and can avoid another obstacle
     obstacle_avoidance_running = False
+    navigation_blocked = False  # stop until a collision-free replacement path exists
+    last_path_check_time = 0.0
     spiral_waypoints     = []   # full remaining spiral waypoint list (updated as spiral progresses)
     spiral_resume_index  = 0    # index in spiral_waypoints of the OA target; set by _on_pointcloud
     spiral_oa_resume     = False # True when returning from OA — on_enter uses remaining waypoints instead of regenerating

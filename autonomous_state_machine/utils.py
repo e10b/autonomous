@@ -1,5 +1,5 @@
 import math
-from time import time
+from autonomous_state_machine.mission_clock import time
 from autonomous_state_machine.shared_data import SharedData
 import autonomous_state_machine.config as config
 from std_msgs.msg import Float64MultiArray

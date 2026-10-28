@@ -19,6 +19,26 @@ class NewControllerState(State):
                 self.shared_data.new_waypoints_flag = False
                 return
 
+            # Check if global terrain/rock obstacles require global Theta* path generation
+            gm = getattr(self.shared_data, "global_map", None)
+            if gm is not None and getattr(gm, "static_slope_data", None) is not None:
+                start_pt = waypoints[0]
+                goal_pt = waypoints[-1]
+                planned = gm.get_path(
+                    start_pt[0], start_pt[1],
+                    goal_pt[0], goal_pt[1],
+                    robot_radius_m=0.35
+                )
+                if len(planned) < 2:
+                    planned = gm.get_path(
+                        start_pt[0], start_pt[1],
+                        goal_pt[0], goal_pt[1],
+                        robot_radius_m=0.28
+                    )
+                if len(planned) >= 2:
+                    self.log(f"[GlobalMap] Injected global Theta* trajectory ({len(planned)} waypoints) around static slope & rock obstacles")
+                    waypoints = planned
+
             if config.CONTROLLER_TYPE == "align":
                 self.shared_data.controller = AlignAndMove(waypoints, logger=self.shared_data.logger)
                 self.shared_data.controller.start_next_target()

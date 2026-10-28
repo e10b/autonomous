@@ -1,5 +1,5 @@
 import numpy as np
-from time import time
+from autonomous_state_machine.mission_clock import time
 from autonomous_state_machine.states.state_class import State
 from autonomous_state_machine.utils import replan_to_goal
 from geometry_msgs.msg import Twist

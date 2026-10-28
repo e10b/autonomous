@@ -27,10 +27,12 @@ Function Overview:
     - get_path: Executes the Theta* algorithm across the global map (with Minkowski
       inflation for robot radius) to return smooth, any-angle odom-frame waypoints.
 """
+import os
 import numpy as np
 import logging
 import math
 import heapq
+from scipy.ndimage import binary_dilation
 
 class GlobalMapManager:
     def __init__(self, map_size_m=60.0, overlap_m=5.0, shift_m=30.0, cell_size_m=0.10,
@@ -76,7 +78,83 @@ class GlobalMapManager:
         self.global_origin_x = None
         self.global_origin_y = None
         
+        # Static Slope Layer Support (USGS DEM / terrain traversability)
+        self.static_obstacle_mask = np.zeros((self.grid_size, self.grid_size), dtype=bool)
+        self.gx_map = np.zeros((self.grid_size, self.grid_size), dtype=np.float32)
+        self.gy_map = np.zeros((self.grid_size, self.grid_size), dtype=np.float32)
+        self.static_slope_data = self._load_static_slope_layer()
+        
         self.logger.info(f"Initialized {self.map_size_m}m x {self.map_size_m}m Global Map Manager (cells: {self.cell_size_m}m)")
+
+    def _load_static_slope_layer(self):
+        """Loads pre-scanned 2D static slope layer if present."""
+        candidates = [
+            os.getenv("YONDER_STATIC_SLOPE_MAP", ""),
+            "/home/yonder/ros2_ws/static_slope_costmap.npy",
+            "/Users/ethan/Code/yonderit/scripts/terrain_prototype/static_slope_costmap.npy"
+        ]
+        for path in candidates:
+            if path and os.path.isfile(path):
+                try:
+                    data = np.load(path, allow_pickle=True).item()
+                    self.logger.info(f"[GlobalMap] Loaded static slope layer from {path}")
+                    return data
+                except Exception as e:
+                    self.logger.warn(f"[GlobalMap] Failed loading static slope layer from {path}: {e}")
+        return None
+
+    def _apply_static_layer(self):
+        """Applies static terrain slope obstacles to self.grid in odom frame."""
+        if self.static_slope_data is None or self.global_origin_x is None:
+            return
+        
+        impassable_mask = self.static_slope_data.get("impassable_mask")
+        if impassable_mask is None:
+            return
+            
+        res = self.static_slope_data.get("resolution", 0.40)
+        x_min = self.static_slope_data.get("x_webots_min", self.static_slope_data.get("x_min", -12.0))
+        y_min = self.static_slope_data.get("y_webots_min", self.static_slope_data.get("y_min", -21.0))
+        if y_min > -10.0:
+            y_min = -21.0
+        
+        ny, nx = impassable_mask.shape
+        ys_webots = y_min + np.arange(ny) * res
+        xs_webots = x_min + np.arange(nx) * res
+        
+        rows, cols = np.where(impassable_mask)
+        if len(rows) == 0:
+            return
+            
+        # In odom: x_odom = -X_webots, y_odom = -Y_webots
+        x_odom = -xs_webots[cols]
+        y_odom = -ys_webots[rows]
+        
+        grid_idx_x = ((x_odom - self.global_origin_x) / self.cell_size_m).astype(np.int32)
+        grid_idx_y = ((y_odom - self.global_origin_y) / self.cell_size_m).astype(np.int32)
+        
+        valid = (grid_idx_x >= 0) & (grid_idx_x < self.grid_size) & \
+                (grid_idx_y >= 0) & (grid_idx_y < self.grid_size)
+                
+        vx = grid_idx_x[valid]
+        vy = grid_idx_y[valid]
+        
+        self.grid[vx, vy] = 100
+        self.static_obstacle_mask[vx, vy] = True
+        self.logger.info(f"[GlobalMap] Injected {len(vx)} static slope cliff obstacles (>22 deg) into global map")
+
+        gx_data = self.static_slope_data.get("gx_odom")
+        gy_data = self.static_slope_data.get("gy_odom")
+        if gx_data is not None and gy_data is not None:
+            all_rows, all_cols = np.indices((ny, nx))
+            all_x_odom = -xs_webots[all_cols]
+            all_y_odom = -ys_webots[all_rows]
+            gx_idx = ((all_x_odom - self.global_origin_x) / self.cell_size_m).astype(np.int32)
+            gy_idx = ((all_y_odom - self.global_origin_y) / self.cell_size_m).astype(np.int32)
+            valid_g = (gx_idx >= 0) & (gx_idx < self.grid_size) & (gy_idx >= 0) & (gy_idx < self.grid_size)
+            self.gx_map[gx_idx[valid_g], gy_idx[valid_g]] = gx_data[all_rows[valid_g], all_cols[valid_g]]
+            self.gy_map[gx_idx[valid_g], gy_idx[valid_g]] = gy_data[all_rows[valid_g], all_cols[valid_g]]
+            self.logger.info("[GlobalMap] Injected anisotropic terrain gradient vector field (Gx, Gy)")
 
     def initialize_origin(self, robot_x, robot_y):
         """
@@ -88,6 +166,7 @@ class GlobalMapManager:
             half_map = self.map_size_m / 2.0
             self.global_origin_x = robot_x - half_map
             self.global_origin_y = robot_y - half_map
+            self._apply_static_layer()
             self.logger.info(f"Set initial global origin to ({self.global_origin_x:.2f}, {self.global_origin_y:.2f})")
             return True
         return False
@@ -158,6 +237,8 @@ class GlobalMapManager:
         
         # Clip to 0-100 range and save back to the global uint8 grid
         self.grid = np.clip(temp_grid, 0, 100).astype(np.uint8)
+        if np.any(self.static_obstacle_mask):
+            self.grid[self.static_obstacle_mask] = 100
 
     def check_and_shift(self, robot_x, robot_y):
         """
@@ -277,7 +358,7 @@ class GlobalMapManager:
             return (x, y)
 
         binary_grid = (self.grid > self.obstacle_threshold).astype(np.uint8)
-        radius_cells = max(1, int(robot_radius_m / self.cell_size_m))
+        radius_cells = max(1, math.ceil(robot_radius_m / self.cell_size_m))
         inflated = self._minkowski_sum_grid(binary_grid, radius_cells)
 
         sc = max(0, min(self.grid_size - 1, int((x - self.global_origin_x) / self.cell_size_m)))
@@ -311,12 +392,18 @@ class GlobalMapManager:
         Returns a list of (x, y) odom-frame waypoints.
         """
         if self.global_origin_x is None or self.global_origin_y is None:
-            return []
+            self.initialize_origin(robot_x, robot_y)
 
         # 0. Automatically clip target to map boundaries along the sightline vector (and handle conversions)
         target_x, target_y = self.clip_target_to_bounds(
             robot_x, robot_y, target_a, target_b, target_type=target_type, gps_converter=gps_converter
         )
+
+        # Check if pre-computed anisotropic static slope costmap is available
+        if self.static_slope_data is not None:
+            static_plan = self._plan_static_slope_path(robot_x, robot_y, target_x, target_y)
+            if static_plan and len(static_plan) >= 2:
+                return static_plan
 
         # 1. Convert global coordinates to grid indices
         start_c = int((robot_x - self.global_origin_x) / self.cell_size_m)
@@ -337,20 +424,12 @@ class GlobalMapManager:
         # 2. Create binary grid and inflate
         binary_grid = (self.grid > self.obstacle_threshold).astype(np.uint8)
         
-        radius_cells = max(1, int(robot_radius_m / self.cell_size_m))
+        radius_cells = max(1, math.ceil(robot_radius_m / self.cell_size_m))
         inflated = self._minkowski_sum_grid(binary_grid, radius_cells)
 
-        # Ensure start and goal are free from their OWN inflation zones so the algorithm doesn't fail instantly
-        def clear_radius(grid, center, radius):
-            cx, cy = center
-            for i in range(-radius, radius + 1):
-                for j in range(-radius, radius + 1):
-                    if i*i + j*j <= radius*radius:
-                        if 0 <= cx+i < self.grid_size and 0 <= cy+j < self.grid_size:
-                            grid[cx+i, cy+j] = 0
-
-        clear_radius(inflated, start, radius_cells)
-        clear_radius(inflated, goal, radius_cells)
+        # Never erase real obstacles or their clearance halo to force a route.
+        if inflated[start] or inflated[goal]:
+            return []
 
         # 3. Pathfinding
         path_idx = self._theta_star(inflated, start, goal)
@@ -371,26 +450,25 @@ class GlobalMapManager:
         if radius <= 0:
             return grid.copy()
 
-        summed = grid.copy()
-        r2 = radius * radius
-        gx, gy = grid.shape
+        offsets = np.arange(-radius, radius + 1)
+        disk = offsets[:, None] ** 2 + offsets[None, :] ** 2 <= radius ** 2
+        return binary_dilation(grid == 1, structure=disk).astype(np.uint8)
 
-        occupied = np.argwhere(grid == 1)
-        for (i, j) in occupied:
-            i0 = max(0, i - radius)
-            i1 = min(gx - 1, i + radius)
-            j0 = max(0, j - radius)
-            j1 = min(gy - 1, j + radius)
-
-            for k in range(i0, i1 + 1):
-                dx = k - i
-                dx2 = dx * dx
-                for inner in range(j0, j1 + 1):
-                    dy_ = inner - j
-                    if dx2 + dy_ * dy_ <= r2:
-                        summed[k, inner] = 1
-
-        return summed
+    def path_is_clear(self, points, robot_radius_m):
+        """Check the entire remaining route against current inflated obstacles."""
+        if self.global_origin_x is None or len(points) < 2:
+            return False
+        radius = max(1, math.ceil(robot_radius_m / self.cell_size_m))
+        inflated = self._minkowski_sum_grid(
+            (self.grid > self.obstacle_threshold).astype(np.uint8), radius)
+        # Returned waypoints lie exactly on grid coordinates. Absorb floating
+        # point roundoff so 59.99999999999999 maps back to cell 60, not 59.
+        cells = [(math.floor((x - self.global_origin_x) / self.cell_size_m + 1e-7),
+                  math.floor((y - self.global_origin_y) / self.cell_size_m + 1e-7))
+                 for x, y in points]
+        if any(c < 0 or r < 0 or c >= self.grid_size or r >= self.grid_size for c, r in cells):
+            return False
+        return all(self._line_of_sight(inflated, a, b) for a, b in zip(cells, cells[1:]))
 
     def _line_of_sight(self, grid, a, b):
         x0, y0 = a
@@ -401,19 +479,67 @@ class GlobalMapManager:
         sy = 1 if y1 > y0 else -1
         err = dx - dy
         
+        # Heading unit vector for candidate motion segment A -> B
+        length = math.hypot(x1 - x0, y1 - y0)
+        vx = (x1 - x0) / length if length > 0 else 0.0
+        vy = (y1 - y0) / length if length > 0 else 0.0
+        
+        has_gradients = hasattr(self, "gx_map") and np.any(self.gx_map)
+        # Precomputed tangent limits: tan(15 deg), tan(22 deg), tan(-25 deg)
+        tan_max_roll = 0.267949
+        tan_max_climb = 0.404026
+        tan_max_descent = -0.466308
+        
         x, y = x0, y0
         while True:
             if grid[x, y] == 1:
                 return False
+            # Directional traversability check along ray
+            if has_gradients:
+                gx = self.gx_map[x, y]
+                gy = self.gy_map[x, y]
+                if gx != 0 or gy != 0:
+                    tan_roll = abs(-gx * vy + gy * vx)
+                    if tan_roll > tan_max_roll:
+                        return False
+                    tan_pitch = gx * vx + gy * vy
+                    if tan_pitch > tan_max_climb or tan_pitch < tan_max_descent:
+                        return False
             if (x, y) == (x1, y1):
                 return True
             e2 = 2 * err
+            if e2 > -dy and e2 < dx:
+                # A diagonal cannot squeeze through two blocked cell corners.
+                if grid[x + sx, y] or grid[x, y + sy]:
+                    return False
             if e2 > -dy:
                 err -= dy
                 x += sx
             if e2 < dx:
                 err += dx
                 y += sy
+
+    def _edge_cost(self, a, b):
+        """Calculates distance weighted by direction-dependent anisotropic terrain penalty."""
+        dist = math.hypot(a[0] - b[0], a[1] - b[1])
+        if dist == 0 or not hasattr(self, "gx_map") or not np.any(self.gx_map):
+            return dist
+        
+        vx = (b[0] - a[0]) / dist
+        vy = (b[1] - a[1]) / dist
+        mid_x = int(round((a[0] + b[0]) / 2.0))
+        mid_y = int(round((a[1] + b[1]) / 2.0))
+        if 0 <= mid_x < self.grid_size and 0 <= mid_y < self.grid_size:
+            gx = self.gx_map[mid_x, mid_y]
+            gy = self.gy_map[mid_x, mid_y]
+            if gx != 0 or gy != 0:
+                pitch_deg = math.degrees(math.atan(gx * vx + gy * vy))
+                roll_deg = math.degrees(math.atan(abs(-gx * vy + gy * vx)))
+                # Direction-dependent weighting: strongly penalize roll as it approaches 15 deg
+                climb_penalty = 0.5 * max(0.0, math.sin(math.radians(pitch_deg)))
+                roll_penalty = 2.0 * ((roll_deg / 15.0) ** 2)
+                return dist * (1.0 + climb_penalty + roll_penalty)
+        return dist
 
     def _euclidean_heuristic(self, a, b):
         return math.hypot(a[0] - b[0], a[1] - b[1])
@@ -428,7 +554,8 @@ class GlobalMapManager:
                     continue
                 nx, ny = x + dx, y + dy
                 if 0 <= nx < grid.shape[0] and 0 <= ny < grid.shape[1]:
-                    if grid[nx, ny] != 1:
+                    if grid[nx, ny] != 1 and (dx == 0 or dy == 0 or
+                            (grid[x + dx, y] == 0 and grid[x, y + dy] == 0)):
                         neighbors.append((nx, ny))
         return neighbors
 
@@ -460,10 +587,10 @@ class GlobalMapManager:
 
                 if self._line_of_sight(grid, parent[current], neighbor):
                     pc = parent[current]
-                    tentative_distance = g[pc] + self._euclidean_heuristic(pc, neighbor)
+                    tentative_distance = g[pc] + self._edge_cost(pc, neighbor)
                     new_parent = pc
                 else:
-                    tentative_distance = g[current] + self._euclidean_heuristic(current, neighbor)
+                    tentative_distance = g[current] + self._edge_cost(current, neighbor)
                     new_parent = current
 
                 if neighbor not in g or tentative_distance < g[neighbor]:
@@ -473,6 +600,83 @@ class GlobalMapManager:
                     heapq.heappush(open_set, (f, neighbor))
 
         return None
+
+    def _plan_static_slope_path(self, robot_x, robot_y, target_x, target_y):
+        """Plans optimal trajectory directly on 2D anisotropic slope & rock layer."""
+        impassable = self.static_slope_data.get("impassable_mask")
+        if impassable is None:
+            return []
+            
+        res = self.static_slope_data.get("resolution", 0.40)
+        x_min = self.static_slope_data.get("x_webots_min", -12.0)
+        y_min = self.static_slope_data.get("y_webots_min", -21.0)
+        if y_min > -10.0:
+            y_min = -21.0
+        slope_deg = self.static_slope_data.get("slope_deg", np.zeros_like(impassable, dtype=np.float32))
+        ny, nx = impassable.shape
+        
+        # odom to webots: X_webots = -x_odom, Y_webots = -y_odom
+        sx_w, sy_w = -robot_x, -robot_y
+        gx_w, gy_w = -target_x, -target_y
+        
+        sc = int(np.clip(round((sx_w - x_min) / res), 0, nx - 1))
+        sr = int(np.clip(round((sy_w - y_min) / res), 0, ny - 1))
+        gc = int(np.clip(round((gx_w - x_min) / res), 0, nx - 1))
+        gr = int(np.clip(round((gy_w - y_min) / res), 0, ny - 1))
+        
+        start = (sr, sc)
+        goal = (gr, gc)
+        
+        pq = [(0.0, start[0], start[1], 0.0)]
+        cost_so_far = {start: 0.0}
+        parent = {start: None}
+        
+        while pq:
+            f, r, c, g_val = heapq.heappop(pq)
+            if (r, c) == goal:
+                break
+            if g_val > cost_so_far.get((r, c), 1e9):
+                continue
+                
+            for dr in [-1, 0, 1]:
+                for dc in [-1, 0, 1]:
+                    if dr == 0 and dc == 0:
+                        continue
+                    nr, nc = r + dr, c + dc
+                    if nr < 0 or nr >= ny or nc < 0 or nc >= nx:
+                        continue
+                    if impassable[nr, nc]:
+                        continue
+                        
+                    dist = math.hypot(dr * res, dc * res)
+                    cell_slope = slope_deg[nr, nc]
+                    move_cost = dist * (1.0 + (cell_slope / 15.0)**2)
+                    new_g = g_val + move_cost
+                    
+                    if new_g < cost_so_far.get((nr, nc), 1e9):
+                        cost_so_far[(nr, nc)] = new_g
+                        h = math.hypot((nr - goal[0])*res, (nc - goal[1])*res)
+                        heapq.heappush(pq, (new_g + h, nr, nc, new_g))
+                        parent[(nr, nc)] = (r, c)
+                        
+        if goal not in parent:
+            return []
+            
+        curr = goal
+        path = []
+        while curr:
+            path.append(curr)
+            curr = parent.get(curr)
+        path.reverse()
+        
+        odom_path = []
+        for r, c in path:
+            xw = x_min + c * res
+            yw = y_min + r * res
+            odom_path.append((-xw, -yw))
+            
+        self.logger.info(f"[GlobalMap] Anisotropic static planner generated {len(odom_path)} waypoints through Canyon Gauntlet")
+        return odom_path
 
     def write_ascii_map(self, output_path, robot_x, robot_y, window=40, robot_radius_m=1.0, path_waypoints=None, goal=None):
         """Writes a localized ASCII representation of the grid to output_path for external viewing."""

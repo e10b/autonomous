@@ -1,6 +1,6 @@
 from autonomous_state_machine.states.state_class import State
 from geometry_msgs.msg import Twist
-from time import time
+from autonomous_state_machine.mission_clock import time
 import numpy as np
 from autonomous_state_machine.align import AlignAndMove
 import autonomous_state_machine.config as config
@@ -39,7 +39,9 @@ class NewObstacleAvoidanceControllerState(State):
         self.shared_data.obstacle_avoidance_controller = AlignAndMove(waypoints, logger=self.shared_data.logger)
         self.shared_data.obstacle_avoidance_controller.start_next_target()
 
-        self.phase = "reverse"
+        # Refreshing an active route must not restart the reverse maneuver on
+        # every newly observed obstacle. Stop, load the safe route, then align.
+        self.phase = "follow" if self.phase in ("follow", "reverse") else "reverse"
         self.phase_start_time = time()
         return True
 

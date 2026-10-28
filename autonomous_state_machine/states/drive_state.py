@@ -1,7 +1,7 @@
 from autonomous_state_machine.states.state_class import State, StateInstance
 from autonomous_state_machine.shared_data import SharedData
 from std_msgs.msg import Float64MultiArray
-from time import time
+from autonomous_state_machine.mission_clock import time
 
 class DriveState(State):
     def __init__(self, shared_data: SharedData, state_instance: StateInstance):

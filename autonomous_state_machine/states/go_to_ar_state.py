@@ -1,5 +1,5 @@
 from autonomous_state_machine.states.state_class import State
-from time import time
+from autonomous_state_machine.mission_clock import time
 from geometry_msgs.msg import Twist
 from autonomous_state_machine.utils import clamp
 import autonomous_state_machine.config as config
