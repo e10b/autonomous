@@ -14,9 +14,22 @@ import subprocess
 import sys
 import time
 
+import shutil
+
 CONTAINER_NAME = "docker_environment-rover-1"
-WEBOTS_APP = "/Users/ethan/Applications/Webots.app/Contents/MacOS/webots"
-WORLD_FILE = "/Users/ethan/Code/yonderit/sim_environment/simulation/worlds/terrain_world.wbt"
+# Dynamically locate webots binary across macOS / Linux platforms
+WEBOTS_APP = (
+    os.getenv("WEBOTS_BIN")
+    or shutil.which("webots")
+    or "/Applications/Webots.app/Contents/MacOS/webots"
+    or os.path.expanduser("~/Applications/Webots.app/Contents/MacOS/webots")
+)
+
+# Resolve default world file relative to repository workspace if possible
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_WORKSPACE_ROOT = os.path.abspath(os.path.join(_SCRIPT_DIR, "../../../.."))
+_DEFAULT_WORLD = os.path.join(_WORKSPACE_ROOT, "sim_environment", "simulation", "worlds", "terrain_world.wbt")
+WORLD_FILE = os.getenv("WEBOTS_WORLD_PATH", _DEFAULT_WORLD)
 LOG_FILE = "/tmp/competition-run.log"
 
 
@@ -131,7 +144,8 @@ def dispatch_waypoint(east: float, north: float, speed: float, max_attempts: int
         time.sleep(1.5)
 
 
-ARTIFACT_DIR = "/Users/ethan/.gemini/antigravity-ide/brain/0d76151d-5efd-4eb2-aef6-071a1185293a"
+ARTIFACT_DIR = os.getenv("AUTON_ARTIFACT_DIR", "/tmp/artifacts")
+os.makedirs(ARTIFACT_DIR, exist_ok=True)
 
 
 def monitor_navigation(target_east: float, target_north: float, timeout_sec: float = 90.0):
@@ -212,7 +226,7 @@ def monitor_navigation(target_east: float, target_north: float, timeout_sec: flo
 
 def main():
     parser = argparse.ArgumentParser(description="End-to-end programmatic competition runner")
-    parser.add_argument("--world", type=str, default="/Users/ethan/Code/yonderit/sim_environment/simulation/worlds/terrain_world.wbt", help="world file to load")
+    parser.add_argument("--world", type=str, default=WORLD_FILE, help="world file to load")
     parser.add_argument("--east", type=float, default=-3.6, help="target east meters relative to start")
     parser.add_argument("--north", type=float, default=9.0, help="target north meters relative to start")
     parser.add_argument("--speed", type=float, default=0.6, help="drive speed (m/s)")

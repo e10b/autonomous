@@ -37,7 +37,7 @@ from scipy.ndimage import binary_dilation
 class GlobalMapManager:
     def __init__(self, map_size_m=60.0, overlap_m=5.0, shift_m=30.0, cell_size_m=0.10,
                  free_space_decay=0, obstacle_confidence_increase=100, obstacle_threshold=60,
-                 logger=None):
+                 static_slope_path=None, logger=None):
         """
         Initializes the Global Map Manager.
         The map is a large continuous sliding window grid.
@@ -82,17 +82,32 @@ class GlobalMapManager:
         self.static_obstacle_mask = np.zeros((self.grid_size, self.grid_size), dtype=bool)
         self.gx_map = np.zeros((self.grid_size, self.grid_size), dtype=np.float32)
         self.gy_map = np.zeros((self.grid_size, self.grid_size), dtype=np.float32)
-        self.static_slope_data = self._load_static_slope_layer()
+        self.static_slope_data = self._load_static_slope_layer(static_slope_path)
         
         self.logger.info(f"Initialized {self.map_size_m}m x {self.map_size_m}m Global Map Manager (cells: {self.cell_size_m}m)")
 
-    def _load_static_slope_layer(self):
-        """Loads pre-scanned 2D static slope layer if present."""
-        candidates = [
-            os.getenv("YONDER_STATIC_SLOPE_MAP", ""),
-            "/home/yonder/ros2_ws/static_slope_costmap.npy",
-            "/Users/ethan/Code/yonderit/scripts/terrain_prototype/static_slope_costmap.npy"
-        ]
+    def _load_static_slope_layer(self, explicit_path=None):
+        """Loads pre-scanned 2D static slope layer if requested."""
+        env_path = os.getenv("YONDER_STATIC_SLOPE_MAP", "")
+        # Only look for slope layer if explicitly requested via parameter or environment variable
+        target_path = explicit_path or env_path
+        if not target_path:
+            return None
+
+        candidates = [target_path]
+        if target_path.lower() in ("1", "true", "default"):
+            candidates = [
+                "/home/yonder/ros2_ws/static_slope_costmap.npy",
+                "/home/yonder/ros2_ws/src/autonomous/data/static_slope_costmap.npy",
+                os.path.join(os.getcwd(), "static_slope_costmap.npy"),
+            ]
+            try:
+                from ament_index_python.packages import get_package_share_directory
+                share_dir = get_package_share_directory("autonomous_state_machine")
+                candidates.append(os.path.join(share_dir, "data", "static_slope_costmap.npy"))
+            except Exception:
+                pass
+
         for path in candidates:
             if path and os.path.isfile(path):
                 try:
