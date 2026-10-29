@@ -2,8 +2,9 @@ from autonomous_state_machine.states.state_class import State
 from autonomous_state_machine.pp import PurePursuit
 from autonomous_state_machine.align import AlignAndMove
 import autonomous_state_machine.config as config
-import numpy as np
+import os
 import math
+import numpy as np
 
 class NewControllerState(State):
     def __init__(self, shared_data, state_instance):
@@ -20,8 +21,9 @@ class NewControllerState(State):
                 return
 
             # Check if global terrain/rock obstacles require global Theta* path generation
+            enable_slope_oa = os.getenv("YONDER_ENABLE_SLOPE_AWARENESS", "1").lower() in ("1", "true", "yes")
             gm = getattr(self.shared_data, "global_map", None)
-            if gm is not None and getattr(gm, "static_slope_data", None) is not None:
+            if enable_slope_oa and gm is not None and getattr(gm, "static_slope_data", None) is not None:
                 start_pt = waypoints[0]
                 goal_pt = waypoints[-1]
                 planned = gm.get_path(
@@ -38,6 +40,24 @@ class NewControllerState(State):
                 if len(planned) >= 2:
                     self.log(f"[GlobalMap] Injected global Theta* trajectory ({len(planned)} waypoints) around static slope & rock obstacles")
                     waypoints = planned
+
+            # Publish planned path for Webots and UI visualization before movement starts
+            if getattr(self.shared_data, "oa_path_publisher", None) is not None and len(waypoints) >= 2:
+                try:
+                    from nav_msgs.msg import Path
+                    from geometry_msgs.msg import PoseStamped
+                    path_msg = Path()
+                    path_msg.header.frame_id = 'odom'
+                    for px, py in waypoints:
+                        ps = PoseStamped()
+                        ps.header.frame_id = 'odom'
+                        ps.pose.position.x = float(px)
+                        ps.pose.position.y = float(py)
+                        path_msg.poses.append(ps)
+                    self.shared_data.oa_path_publisher.publish(path_msg)
+                    self.log(f"[Viz] Broadcasted planned route ({len(waypoints)} waypoints) to /autonomous/viz/oa_path")
+                except Exception as e:
+                    self.log(f"[Viz] Could not publish planned path: {e}", logtype="warn")
 
             if config.CONTROLLER_TYPE == "align":
                 self.shared_data.controller = AlignAndMove(waypoints, logger=self.shared_data.logger)
