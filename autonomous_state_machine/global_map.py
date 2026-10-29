@@ -535,7 +535,7 @@ class GlobalMapManager:
     def _edge_cost(self, a, b):
         """Calculates distance weighted by direction-dependent anisotropic terrain penalty."""
         dist = math.hypot(a[0] - b[0], a[1] - b[1])
-        if dist == 0 or not hasattr(self, "gx_map") or not np.any(self.gx_map):
+        if dist == 0 or not hasattr(self, "gx_map") or not (np.any(self.gx_map) or np.any(self.gy_map)):
             return dist
         
         vx = (b[0] - a[0]) / dist
